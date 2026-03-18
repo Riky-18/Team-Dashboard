@@ -288,6 +288,63 @@ body {
 .section-sub      { font-size:13px; color:var(--text-secondary); letter-spacing:1px; margin-top:10px; }
 .section-sub-title{ font-family:var(--font-display); font-size:11px; letter-spacing:3px; color:var(--text-secondary); margin-bottom:16px; }
 
+/* ══ CAPTAIN INFO BANNER (visible to all members on dashboard) ══ */
+.captain-info-banner {
+  display: flex;
+  align-items: center;
+  gap: 0;
+  background: var(--bg-card);
+  border: 1px solid var(--border-mid);
+  border-radius: var(--radius-lg);
+  margin-bottom: 28px;
+  overflow: hidden;
+  position: relative;
+}
+.captain-info-banner::before {
+  content: '';
+  position: absolute;
+  top: 0; left: 0; right: 0;
+  height: 2px;
+  background: linear-gradient(90deg, var(--cyan), var(--violet-b), var(--green));
+}
+.cib-item {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 20px 28px;
+  flex: 1;
+}
+.cib-icon {
+  font-size: 22px;
+  color: var(--cyan);
+  flex-shrink: 0;
+}
+.cib-label {
+  font-family: var(--font-mono);
+  font-size: 9px;
+  letter-spacing: 2px;
+  color: var(--text-muted);
+  margin-bottom: 4px;
+}
+.cib-value {
+  font-family: var(--font-body);
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--text-primary);
+  letter-spacing: 0.5px;
+}
+.cib-divider {
+  width: 1px;
+  height: 40px;
+  background: var(--border-subtle);
+  flex-shrink: 0;
+}
+@media (max-width: 600px) {
+  .captain-info-banner { flex-direction: column; }
+  .cib-divider { width: 80%; height: 1px; }
+  .cib-item { padding: 14px 20px; width: 100%; }
+}
+
 /* ══ SUMMARY CARDS ══ */
 .summary-grid { display:grid; grid-template-columns:repeat(auto-fill,minmax(180px,1fr)); gap:16px; margin-bottom:32px; }
 .summary-card {
@@ -389,8 +446,9 @@ body {
 .badge-captain      { background:rgba(255,215,0,.15); color:var(--gold);    border:1px solid rgba(255,215,0,.4); }
 .badge-vice-captain { background:rgba(168,85,247,.15); color:var(--violet-b); border:1px solid rgba(168,85,247,.4); }
 .badge-strategist   { background:rgba(0,255,136,.1);  color:var(--green);  border:1px solid rgba(0,255,136,.3); }
+.badge-manager      { background:rgba(0,212,255,.12); color:var(--cyan);   border:1px solid rgba(0,212,255,.4); }
 .badge-mentor       { background:rgba(255,51,102,.1); color:var(--red);    border:1px solid rgba(255,51,102,.3); }
-.badge-member       { background:rgba(0,212,255,.1);  color:var(--cyan);   border:1px solid var(--cyan-dim); }
+.badge-member       { background:rgba(255,255,255,.06); color:var(--text-secondary); border:1px solid var(--border-subtle); }
 
 /* ══ TABLE ══ */
 .table-wrap { overflow-x:auto; border-radius:var(--radius-lg); border:1px solid var(--border-subtle); }
@@ -531,7 +589,69 @@ textarea.captain-input { resize:vertical; }
 @keyframes slideIn { from{transform:translateX(100%);opacity:0} to{transform:translateX(0);opacity:1} }
 @keyframes fadeOut { to{opacity:0;transform:translateX(20px)} }
 
-/* ══ UTILS ══ */
+/* ══ MEMBER INFO STRIP (venue + task — shown on dashboard for all) ══ */
+.member-info-strip {
+  display: flex;
+  align-items: center;
+  gap: 0;
+  background: var(--bg-card);
+  border: 1px solid var(--border-mid);
+  border-radius: var(--radius-lg);
+  padding: 20px 28px;
+  margin-bottom: 28px;
+  position: relative;
+  overflow: hidden;
+}
+.member-info-strip::before {
+  content: '';
+  position: absolute;
+  top: 0; left: 0; right: 0;
+  height: 2px;
+  background: linear-gradient(90deg, var(--cyan), var(--green), var(--violet-b));
+}
+.mis-venue, .mis-task {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  flex: 1;
+}
+.mis-divider {
+  width: 1px;
+  height: 48px;
+  background: var(--border-subtle);
+  margin: 0 28px;
+  flex-shrink: 0;
+}
+.mis-icon {
+  font-size: 24px;
+  color: var(--cyan);
+  flex-shrink: 0;
+}
+.mis-task .mis-icon { color: var(--green); }
+.mis-label {
+  font-family: var(--font-mono);
+  font-size: 9px;
+  letter-spacing: 3px;
+  color: var(--text-muted);
+  margin-bottom: 6px;
+}
+.mis-value {
+  font-family: var(--font-body);
+  font-size: 16px;
+  font-weight: 600;
+  color: var(--text-primary);
+  letter-spacing: 0.5px;
+}
+.mis-task-meta {
+  display: flex;
+  gap: 8px;
+  margin-top: 6px;
+  flex-wrap: wrap;
+}
+@media (max-width: 600px) {
+  .member-info-strip { flex-direction: column; align-items: flex-start; gap: 16px; }
+  .mis-divider { width: 100%; height: 1px; margin: 0; }
+}
 .hidden      { display:none !important; }
 .flex-row    { display:flex; align-items:flex-start; }
 .empty-state { text-align:center; padding:40px; color:var(--text-muted); font-family:var(--font-mono); font-size:12px; letter-spacing:2px; grid-column:1/-1; }

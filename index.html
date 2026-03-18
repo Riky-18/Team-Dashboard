@@ -11,13 +11,18 @@
 
   <!-- ═══ FIREBASE MODULE ════════════════════════════════════════════════ -->
   <script type="module">
-    import { initializeApp }      from "https://www.gstatic.com/firebasejs/12.10.0/firebase-app.js";
-    import { getAnalytics }       from "https://www.gstatic.com/firebasejs/12.10.0/firebase-analytics.js";
+    import { initializeApp }        from "https://www.gstatic.com/firebasejs/12.10.0/firebase-app.js";
+    import { getAnalytics }         from "https://www.gstatic.com/firebasejs/12.10.0/firebase-analytics.js";
     import { getAuth,
              GoogleAuthProvider,
              signInWithPopup,
              signOut as fbSignOut,
-             onAuthStateChanged } from "https://www.gstatic.com/firebasejs/12.10.0/firebase-auth.js";
+             onAuthStateChanged }   from "https://www.gstatic.com/firebasejs/12.10.0/firebase-auth.js";
+    import { getFirestore,
+             doc,
+             getDoc,
+             setDoc,
+             onSnapshot }           from "https://www.gstatic.com/firebasejs/12.10.0/firebase-firestore.js";
 
     const cfg = {
       apiKey:            "AIzaSyCCzF9-KnQpw-VxOrjXzsmyg-PMMt5tiTs",
@@ -28,14 +33,19 @@
       appId:             "1:410001904863:web:53a9bd82bec4495b60856a",
       measurementId:     "G-S4SVHEDJ9K"
     };
-    const app      = initializeApp(cfg);
+
+    const app  = initializeApp(cfg);
     getAnalytics(app);
-    const auth     = getAuth(app);
+    const auth = getAuth(app);
+    const db   = getFirestore(app);
+    const CAPTAIN_DOC = doc(db, 'nexus', 'captainData'); // single shared document
+
     const provider = new GoogleAuthProvider();
     provider.setCustomParameters({ prompt:'select_account' });
 
-    /* bridges that script.js (non-module) calls */
+    /* ── Auth bridges ── */
     window._fbSignOut = () => fbSignOut(auth);
+
     window._firebaseGoogleSignIn = async () => {
       try { await signInWithPopup(auth, provider); }
       catch(e) {
@@ -46,9 +56,35 @@
         );
       }
     };
+
     onAuthStateChanged(auth, user =>
       user ? window._onFirebaseUser(user) : window._onFirebaseSignOut()
     );
+
+    /* ── Firestore bridges ── */
+
+    // Captain calls this to write venue + tasks to Firestore
+    window._fbSaveCaptainData = async (data) => {
+      try {
+        await setDoc(CAPTAIN_DOC, data, { merge: true });
+      } catch(e) {
+        console.error('Firestore write error:', e);
+        window._onFirebaseError('Could not save to Firestore: ' + e.message);
+      }
+    };
+
+    // Called once after login — fetches current data then listens for live updates
+    window._fbSubscribeCaptainData = (callback) => {
+      // Immediate fetch first so UI isn't blank
+      getDoc(CAPTAIN_DOC).then(snap => {
+        callback(snap.exists() ? snap.data() : { venue: '', tasks: {} });
+      }).catch(() => callback({ venue: '', tasks: {} }));
+
+      // Then live listener — fires whenever captain changes anything
+      return onSnapshot(CAPTAIN_DOC, snap => {
+        callback(snap.exists() ? snap.data() : { venue: '', tasks: {} });
+      }, err => console.warn('Firestore snapshot error:', err));
+    };
   </script>
   <!-- ══════════════════════════════════════════════════════════════════ -->
 </head>
@@ -182,9 +218,57 @@
 
     <!-- ── DASHBOARD ── -->
     <section class="section active" id="sec-dashboard">
+
+      <!-- Live venue + personal task strip — visible to ALL members, updates in real time -->
+      <div class="member-info-strip" id="memberInfoStrip">
+        <div class="mis-venue">
+          <span class="mis-icon">◎</span>
+          <div>
+            <div class="mis-label">CURRENT VENUE</div>
+            <div class="mis-value" id="misVenueVal">Not Set</div>
+          </div>
+        </div>
+        <div class="mis-divider"></div>
+        <div class="mis-task">
+          <span class="mis-icon">◆</span>
+          <div>
+            <div class="mis-label">YOUR ASSIGNED TASK</div>
+            <div class="mis-value" id="misTaskVal">No task assigned</div>
+            <div class="mis-task-meta" id="misTaskMeta"></div>
+          </div>
+        </div>
+      </div>
+
       <div class="section-header">
         <h2 class="section-title">COMMAND OVERVIEW</h2>
         <p class="section-sub">Live data from Google Sheets</p>
+      </div>
+
+      <!-- Live Captain Info Banner — visible to ALL members -->
+      <div class="captain-info-banner" id="captainBanner">
+        <div class="cib-item">
+          <span class="cib-icon">◎</span>
+          <div>
+            <div class="cib-label">TEAM VENUE</div>
+            <div class="cib-value" id="bannerVenue">Not Set</div>
+          </div>
+        </div>
+        <div class="cib-divider"></div>
+        <div class="cib-item">
+          <span class="cib-icon">◆</span>
+          <div>
+            <div class="cib-label">ACTIVE TASKS</div>
+            <div class="cib-value" id="bannerTasks">0 assigned</div>
+          </div>
+        </div>
+        <div class="cib-divider"></div>
+        <div class="cib-item">
+          <span class="cib-icon">✓</span>
+          <div>
+            <div class="cib-label">COMPLETED</div>
+            <div class="cib-value" id="bannerCompleted">0 done</div>
+          </div>
+        </div>
       </div>
       <div class="summary-grid">
         <div class="summary-card" data-color="cyan">

@@ -425,6 +425,7 @@ async function loginWithEmail(email, displayName, picture) {
 
   applyModeUI();
   renderUserProfile();
+  subscribeCaptainData(); // start Firestore live listener — works for both captain & members
   renderAll();
 
   showToast(
@@ -445,7 +446,8 @@ function showLoginError(msg) {
 // SIGN OUT
 // ═══════════════════════════════════════════════════════════════
 function signOut() {
-  if(typeof window._fbSignOut==='function') window._fbSignOut().catch(()=>{});
+  if (_firestoreUnsub) { _firestoreUnsub(); _firestoreUnsub = null; }
+  if (typeof window._fbSignOut === 'function') window._fbSignOut().catch(()=>{});
   location.reload();
 }
 
@@ -605,94 +607,205 @@ function navigateTo(sec) {
 function toggleSidebar() { document.getElementById('sidebar').classList.toggle('open'); }
 
 // ═══════════════════════════════════════════════════════════════
-// CAPTAIN DATA (localStorage — venue & tasks persist across sessions)
+// CAPTAIN DATA — stored in Firebase Firestore
+// Captain writes → all members see updates in real time via onSnapshot
 // ═══════════════════════════════════════════════════════════════
-function loadCaptainData() {
-  try { S.captainData = JSON.parse(localStorage.getItem(LS_KEY)) || {venue:'',tasks:{}}; }
-  catch(_) { S.captainData = {venue:'',tasks:{}}; }
-  updateVenueDisplay();
-}
-function saveCaptainData() { localStorage.setItem(LS_KEY, JSON.stringify(S.captainData)); }
+let _firestoreUnsub = null; // holds the onSnapshot unsubscribe fn
 
-// ── VENUE ────────────────────────────────────────────────────────
-function saveVenue() {
-  if(!requireCaptain('Venue update')) return; // hard guard
-  const v = (document.getElementById('venueInput').value||'').trim();
-  if(!v) { showToast('Enter a venue first','warning'); return; }
-  S.captainData.venue = v;
-  saveCaptainData();
-  updateVenueDisplay();
-  showToast('Venue updated: ' + v, 'success');
+// Called after login — subscribe to live Firestore updates
+// Fires for BOTH captain and members — everyone gets real-time venue+task
+function subscribeCaptainData() {
+  if (_firestoreUnsub) { _firestoreUnsub(); _firestoreUnsub = null; }
+
+  if (typeof window._fbSubscribeCaptainData !== 'function') {
+    S.captainData = { venue: '', tasks: {} };
+    updateVenueDisplay();
+    renderMemberStrip();
+    return;
+  }
+
+  _firestoreUnsub = window._fbSubscribeCaptainData((data) => {
+    // This callback fires:
+    //  1. Immediately when a member logs in (current data)
+    //  2. Every time captain saves venue or any task (real-time push)
+    S.captainData = {
+      venue : data.venue || '',
+      tasks : data.tasks || {},
+    };
+
+    // Update everywhere venue/tasks are shown
+    updateVenueDisplay();
+    updateTaskOverview();
+    renderMemberStrip(); // member-facing dashboard strip
+
+    // Re-render member cards so task status badges stay live
+    if (S.members.length) {
+      renderMemberCards(S.filteredMembers.length ? S.filteredMembers : S.members);
+      if (S.activeSection === 'captain') renderTaskTable();
+    }
+  });
 }
+
+// Write to Firestore — only captain can call this (requireCaptain guards above)
+async function saveCaptainData() {
+  if (typeof window._fbSaveCaptainData !== 'function') {
+    showToast('Firestore not ready — please refresh.', 'error');
+    return;
+  }
+  await window._fbSaveCaptainData({
+    venue : S.captainData.venue,
+    tasks : S.captainData.tasks,
+  });
+}
+
+// Keep loadCaptainData as a no-op initialiser (subscription happens after login)
+function loadCaptainData() {
+  S.captainData = { venue: '', tasks: {} };
+}
+
 function updateVenueDisplay() {
   const v = S.captainData.venue || 'Not Set';
-  document.getElementById('venueText').textContent = 'Venue: ' + v;
+  // Topbar pill
+  const tv = document.getElementById('venueText');
+  if (tv) tv.textContent = 'Venue: ' + v;
+  // Captain input field
   const inp = document.getElementById('venueInput');
-  if(inp) inp.value = S.captainData.venue || '';
+  if (inp) inp.value = S.captainData.venue || '';
+}
+
+// ── MEMBER STRIP — live venue + personal task on the dashboard ────
+function renderMemberStrip() {
+  const venueEl = document.getElementById('misVenueVal');
+  if (venueEl) {
+    venueEl.textContent = S.captainData.venue || 'Not Set';
+    venueEl.style.color = S.captainData.venue ? 'var(--cyan)' : 'var(--text-muted)';
+  }
+
+  const taskEl = document.getElementById('misTaskVal');
+  const metaEl = document.getElementById('misTaskMeta');
+  if (!taskEl) return;
+
+  const regNo = S.loggedInUser?.regNo;
+  const task  = regNo ? getTask(regNo) : null;
+
+  if (!task || !task.title) {
+    taskEl.textContent = 'No task assigned yet';
+    taskEl.style.color = 'var(--text-muted)';
+    if (metaEl) metaEl.innerHTML = '';
+    return;
+  }
+
+  taskEl.textContent = task.title;
+  taskEl.style.color = 'var(--text-primary)';
+
+  if (metaEl) {
+    const prio = task.priority || 'medium';
+    const stat = task.status   || 'pending';
+    const due  = task.dueDate
+      ? `<span style="font-family:var(--font-mono);font-size:10px;color:var(--text-muted)">Due: ${task.dueDate}</span>`
+      : '';
+    metaEl.innerHTML = `
+      <span class="priority-${prio}">${prio.toUpperCase()}</span>
+      <span class="status-${stat.replace(/\s+/g,'-')}">${stat.replace(/-/g,' ').toUpperCase()}</span>
+      ${due}`;
+  }
+}
+async function saveVenue() {
+  if (!requireCaptain('Venue update')) return;
+  const v = (document.getElementById('venueInput').value || '').trim();
+  if (!v) { showToast('Enter a venue first', 'warning'); return; }
+  S.captainData.venue = v;
+  await saveCaptainData(); // writes to Firestore → all members update via onSnapshot
+  showToast('Venue updated: ' + v + ' — visible to all members now', 'success');
 }
 
 // ── TASKS ─────────────────────────────────────────────────────────
 function getTask(regNo) {
-  return S.captainData.tasks[regNo] || {title:'',priority:'medium',dueDate:'',status:'pending',remarks:''};
-}
-function setTask(regNo, obj) {
-  if(!requireCaptain('Task assignment')) return; // hard guard
-  S.captainData.tasks[regNo] = obj;
-  saveCaptainData();
+  return S.captainData.tasks[regNo] || { title:'', priority:'medium', dueDate:'', status:'pending', remarks:'' };
 }
 
-function assignBulkTask() {
-  if(!requireCaptain('Bulk assign')) return;
-  const title = (document.getElementById('bulkTaskTitle').value||'').trim();
-  if(!title) { showToast('Enter a task title','warning'); return; }
+async function setTask(regNo, obj) {
+  if (!requireCaptain('Task assignment')) return;
+  S.captainData.tasks[regNo] = obj;
+  await saveCaptainData(); // syncs to Firestore → all members see it
+}
+
+async function assignBulkTask() {
+  if (!requireCaptain('Bulk assign')) return;
+  const title = (document.getElementById('bulkTaskTitle').value || '').trim();
+  if (!title) { showToast('Enter a task title', 'warning'); return; }
   const priority = document.getElementById('bulkPriority').value;
   const dueDate  = document.getElementById('bulkDueDate').value;
   S.members.forEach(m => {
-    S.captainData.tasks[m.regNo] = {title, priority, dueDate, status:'pending', remarks:''};
+    S.captainData.tasks[m.regNo] = { title, priority, dueDate, status:'pending', remarks:'' };
   });
-  saveCaptainData();
-  updateTaskOverview();
-  renderTaskTable();
+  await saveCaptainData();
   showToast(`Task assigned to all ${S.members.length} members`, 'success');
 }
 
 function exportTasks() {
-  if(!requireCaptain('Export')) return;
+  if (!requireCaptain('Export')) return;
   const blob = new Blob([JSON.stringify({
     venue: S.captainData.venue, tasks: S.captainData.tasks, exportedAt: new Date().toISOString()
-  }, null, 2)], {type:'application/json'});
+  }, null, 2)], { type:'application/json' });
   const a = document.createElement('a');
   a.href = URL.createObjectURL(blob);
   a.download = 'nexus_tasks.json';
   a.click();
-  showToast('Exported successfully','success');
+  showToast('Exported successfully', 'success');
 }
 
-function resetAllTasks() {
-  if(!requireCaptain('Reset')) return;
-  if(!confirm('Reset ALL captain data (venue + tasks)? This cannot be undone.')) return;
-  S.captainData = {venue:'',tasks:{}};
-  saveCaptainData();
-  updateVenueDisplay();
-  updateTaskOverview();
-  renderTaskTable();
-  showToast('All captain data cleared','warning');
+async function resetAllTasks() {
+  if (!requireCaptain('Reset')) return;
+  if (!confirm('Reset ALL captain data (venue + tasks)? This cannot be undone.')) return;
+  S.captainData = { venue:'', tasks:{} };
+  await saveCaptainData();
+  showToast('All captain data cleared', 'warning');
 }
 
-function markDone(regNo) {
-  if(!requireCaptain('Mark done')) return;
-  const t = getTask(regNo); t.status='completed';
-  S.captainData.tasks[regNo] = t; saveCaptainData();
-  updateTaskOverview(); renderTaskTable();
-  showToast('Marked as completed','success');
+async function markDone(regNo) {
+  if (!requireCaptain('Mark done')) return;
+  const t = getTask(regNo);
+  t.status = 'completed';
+  S.captainData.tasks[regNo] = t;
+  await saveCaptainData();
+  showToast('Marked as completed', 'success');
+}
+
+function updateVenueDisplay() {
+  const v = S.captainData.venue || 'Not Set';
+  // Topbar pill
+  const vt = document.getElementById('venueText');
+  if (vt) vt.textContent = 'Venue: ' + v;
+  // Captain panel input
+  const inp = document.getElementById('venueInput');
+  if (inp) inp.value = S.captainData.venue || '';
+  // Dashboard banner
+  const bv = document.getElementById('bannerVenue');
+  if (bv) bv.textContent = v;
 }
 
 function updateTaskOverview() {
-  const all = Object.values(S.captainData.tasks);
-  document.getElementById('tobAllNum') .textContent = S.members.length;
-  document.getElementById('tobPendNum').textContent = all.filter(t=>t.status==='pending'||t.status==='in-progress').length;
-  document.getElementById('tobCompNum').textContent = all.filter(t=>t.status==='completed').length;
-  document.getElementById('tobHighNum').textContent = all.filter(t=>t.priority==='high').length;
+  const all       = Object.values(S.captainData.tasks);
+  const pending   = all.filter(t => t.status === 'pending' || t.status === 'in-progress').length;
+  const completed = all.filter(t => t.status === 'completed').length;
+  const high      = all.filter(t => t.priority === 'high').length;
+
+  // Captain panel stat boxes
+  const tobAll  = document.getElementById('tobAllNum');
+  const tobPend = document.getElementById('tobPendNum');
+  const tobComp = document.getElementById('tobCompNum');
+  const tobHigh = document.getElementById('tobHighNum');
+  if (tobAll)  tobAll.textContent  = S.members.length;
+  if (tobPend) tobPend.textContent = pending;
+  if (tobComp) tobComp.textContent = completed;
+  if (tobHigh) tobHigh.textContent = high;
+
+  // Dashboard banner — visible to ALL members
+  const bt = document.getElementById('bannerTasks');
+  const bc = document.getElementById('bannerCompleted');
+  if (bt) bt.textContent = all.length + ' assigned';
+  if (bc) bc.textContent = completed + ' done';
 }
 
 // ═══════════════════════════════════════════════════════════════
@@ -946,13 +1059,32 @@ function switchModalTab(tab) {
 const II = (l,v) => `<div class="info-item"><div class="info-label">${l}</div><div class="info-val">${v||'N/A'}</div></div>`;
 
 function renderModalProfile(m) {
+  const task = getTask(m.regNo);
+  const hasTask = task.title && task.title !== '';
+  const taskInfo = hasTask
+    ? `<span class="priority-${task.priority}" style="font-size:11px">${task.title}</span>
+       &nbsp;<span class="status-${task.status}" style="font-size:11px">[${task.status.toUpperCase()}]</span>
+       ${task.dueDate ? `<span style="font-size:10px;color:var(--text-muted);font-family:var(--font-mono)"> Due: ${task.dueDate}</span>` : ''}`
+    : '<span style="color:var(--text-muted)">No task assigned</span>';
+
   document.getElementById('profileInfo').innerHTML = [
-    II('DEPARTMENT',m.dept), II('MOBILE',m.mobile), II('EMAIL',m.mail),
-    II('CGPA',m.cgpa), II('ARREARS',m.arrears||0), II('SPECIAL LAB',m.specialLab),
-    II('SSG MEMBER',m.ssg), II('EVENTS ATTENDED',m.eventsAttended||0),
-    II('EVENTS WON',m.eventsWon||0), II('FOREIGN LANGUAGE',m.foreignLang),
-    II('MODE OF STUDY',m.modeOfStudy), II('CURRENT EVENTS',m.currentEvents||'None'),
-    II('TEAM VENUE', S.captainData.venue||'Not Set'),
+    II('DEPARTMENT',       m.dept),
+    II('MOBILE',           m.mobile),
+    II('EMAIL',            m.mail),
+    II('CGPA',             m.cgpa || 'N/A'),
+    II('ARREARS',          m.arrears || 0),
+    II('SPECIAL LAB',      m.specialLab),
+    II('SSG MEMBER',       m.ssg),
+    II('EVENTS ATTENDED',  m.eventsAttended || 0),
+    II('EVENTS WON',       m.eventsWon || 0),
+    II('FOREIGN LANGUAGE', m.foreignLang),
+    II('MODE OF STUDY',    m.modeOfStudy),
+    II('CURRENT EVENTS',   m.currentEvents || 'None'),
+    II('TEAM VENUE',       S.captainData.venue || 'Not Set'),
+    `<div class="info-item" style="grid-column:1/-1">
+       <div class="info-label">ASSIGNED TASK</div>
+       <div class="info-val">${taskInfo}</div>
+     </div>`,
   ].join('');
 }
 function renderModalSkills(m) {
@@ -990,9 +1122,9 @@ function renderModalTask(m) {
   document.getElementById('mmStatus')   .value = t.status||'pending';
   document.getElementById('mmRemarks')  .value = t.remarks||'';
 }
-function saveModalTask() {
-  if(!requireCaptain('Save task')) return; // hard guard
-  const m=S.currentMember; if(!m) return;
+async function saveModalTask() {
+  if (!requireCaptain('Save task')) return;
+  const m = S.currentMember; if (!m) return;
   S.captainData.tasks[m.regNo] = {
     title   : document.getElementById('mmTaskTitle').value.trim(),
     priority: document.getElementById('mmPriority').value,
@@ -1000,8 +1132,7 @@ function saveModalTask() {
     status  : document.getElementById('mmStatus').value,
     remarks : document.getElementById('mmRemarks').value.trim(),
   };
-  saveCaptainData();
-  updateTaskOverview(); renderTaskTable(); renderMemberCards(S.filteredMembers);
+  await saveCaptainData(); // syncs to Firestore → onSnapshot re-renders for everyone
   showToast(`Task saved for ${m.name}`, 'success');
 }
 
