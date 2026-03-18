@@ -785,6 +785,18 @@ function formatSkillSlots(entry) {
   return count ? `${count} slot${count === 1 ? '' : 's'}` : '-';
 }
 
+function formatSkillSlotsHtml(entry) {
+  const slots = Array.isArray(entry.slots) ? entry.slots.filter(slot => slot && slot.name) : [];
+  if (!slots.length) return formatSkillSlots(entry);
+
+  return slots.map(slot => `
+    <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:6px">
+      <span>${slot.name}</span>
+      <span class="status-${slot.result === 'passed' ? 'completed' : 'pending'}">${(slot.result || 'failed').toUpperCase()}</span>
+    </div>
+  `).join('');
+}
+
 function renderSkillSlotDraft() {
   const listEl = document.getElementById('skillSlotList');
   const countEl = document.getElementById('skillSlotCount');
@@ -853,7 +865,7 @@ function renderSkillProgressSection() {
   memberBody.innerHTML = entries.length
     ? entries.map(entry => `<tr>
         <td>${entry.week || '-'}</td>
-        <td>${formatSkillSlots(entry)}</td>
+        <td>${formatSkillSlotsHtml(entry)}</td>
         <td>${entry.notes || '-'}</td>
       </tr>`).join('')
     : '<tr><td colspan="3" class="empty-td">No weekly entries yet.</td></tr>';
@@ -867,7 +879,7 @@ function renderSkillProgressSection() {
         <td><strong>${member.name}</strong></td>
         <td style="font-family:var(--font-mono);color:var(--cyan)">${member.regNo}</td>
         <td>${entry.week || '-'}</td>
-        <td>${formatSkillSlots(entry)}</td>
+        <td>${formatSkillSlotsHtml(entry)}</td>
         <td>${entry.notes || '-'}</td>
       </tr>`).join('')
     : '<tr><td colspan="5" class="empty-td">No team skill entries yet.</td></tr>';
