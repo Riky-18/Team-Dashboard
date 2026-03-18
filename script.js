@@ -59,6 +59,7 @@ const S = {
   currentMember   : null,       // member open in modal
   taskFilter      : 'all',
   charts          : {},
+  skillSlotDraft  : [],
 };
 
 // ═══════════════════════════════════════════════════════════════
@@ -565,7 +566,15 @@ function wireListeners() {
   document.getElementById('assignBulkTask') .addEventListener('click', assignBulkTask);
   document.getElementById('exportTasks')    .addEventListener('click', exportTasks);
   document.getElementById('resetTasks')     .addEventListener('click', resetAllTasks);
+  document.getElementById('addSkillSlot').addEventListener('click', addSkillSlotName);
   document.getElementById('saveSkillProgress').addEventListener('click', saveSkillProgress);
+  document.getElementById('skillWeekInput').addEventListener('change', loadSkillWeekDraft);
+  document.getElementById('skillSlotNameInput').addEventListener('keydown', e => {
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      addSkillSlotName();
+    }
+  });
   document.getElementById('taskSearchInput').addEventListener('input',  renderTaskTable);
   document.getElementById('taskStatusFilter').addEventListener('change', renderTaskTable);
 
@@ -765,22 +774,77 @@ function getCurrentWeekValue() {
   return `${utcDate.getUTCFullYear()}-W${String(weekNo).padStart(2, '0')}`;
 }
 
+function formatSkillSlots(entry) {
+  const slotNames = Array.isArray(entry.slotNames) ? entry.slotNames.filter(Boolean) : [];
+  if (slotNames.length) return slotNames.join(', ');
+  const count = entry.slotsBooked ?? 0;
+  return count ? `${count} slot${count === 1 ? '' : 's'}` : '-';
+}
+
+function renderSkillSlotDraft() {
+  const listEl = document.getElementById('skillSlotList');
+  const countEl = document.getElementById('skillSlotCount');
+  if (!listEl || !countEl) return;
+
+  countEl.textContent = `${S.skillSlotDraft.length} slot${S.skillSlotDraft.length === 1 ? '' : 's'} added`;
+  listEl.innerHTML = S.skillSlotDraft.length
+    ? S.skillSlotDraft.map((slot, index) => `
+        <span class="skill-chip skill-primary">
+          ${slot}
+          <button class="btn-xs" type="button" onclick="removeSkillSlotName(${index})">X</button>
+        </span>`).join('')
+    : '<span class="empty-state" style="padding:0">No PS slots added for this week.</span>';
+}
+
+function loadSkillWeekDraft() {
+  const regNo = S.loggedInUser?.regNo;
+  const week = document.getElementById('skillWeekInput')?.value;
+  if (!regNo || !week) return;
+
+  const existing = getSkillEntries(regNo).find(entry => entry.week === week);
+  S.skillSlotDraft = existing?.slotNames ? [...existing.slotNames] : [];
+  document.getElementById('skillResultInput').value = existing?.result || 'passed';
+  document.getElementById('skillNotesInput').value = existing?.notes || '';
+  renderSkillSlotDraft();
+}
+
+function addSkillSlotName() {
+  const input = document.getElementById('skillSlotNameInput');
+  if (!input) return;
+  const slotName = input.value.trim();
+  if (!slotName) {
+    showToast('Enter a PS slot name first.', 'warning');
+    return;
+  }
+
+  S.skillSlotDraft.push(slotName);
+  input.value = '';
+  renderSkillSlotDraft();
+}
+
+window.removeSkillSlotName = function(index) {
+  S.skillSlotDraft.splice(index, 1);
+  renderSkillSlotDraft();
+};
+
 function renderSkillProgressSection() {
   const memberBody = document.getElementById('skillProgressBody');
   const captainBody = document.getElementById('skillProgressCaptainBody');
   if (!memberBody || !captainBody) return;
   const weekInput = document.getElementById('skillWeekInput');
   if (weekInput && !weekInput.value) weekInput.value = getCurrentWeekValue();
+  if (weekInput && !S.skillSlotDraft.length) loadSkillWeekDraft();
+  renderSkillSlotDraft();
 
   const regNo = S.loggedInUser?.regNo;
   const entries = regNo ? getSkillEntries(regNo) : [];
 
   memberBody.innerHTML = entries.length
     ? entries.map(entry => `<tr>
-        <td>${entry.week || 'â€”'}</td>
-        <td>${entry.slotsBooked ?? 0}</td>
+        <td>${entry.week || '-'}</td>
+        <td>${formatSkillSlots(entry)}</td>
         <td><span class="status-${entry.result === 'passed' ? 'completed' : 'pending'}">${(entry.result || 'failed').toUpperCase()}</span></td>
-        <td>${entry.notes || 'â€”'}</td>
+        <td>${entry.notes || '-'}</td>
       </tr>`).join('')
     : '<tr><td colspan="4" class="empty-td">No weekly entries yet.</td></tr>';
 
@@ -792,10 +856,10 @@ function renderSkillProgressSection() {
     ? allEntries.map(({ member, entry }) => `<tr>
         <td><strong>${member.name}</strong></td>
         <td style="font-family:var(--font-mono);color:var(--cyan)">${member.regNo}</td>
-        <td>${entry.week || 'â€”'}</td>
-        <td>${entry.slotsBooked ?? 0}</td>
+        <td>${entry.week || '-'}</td>
+        <td>${formatSkillSlots(entry)}</td>
         <td><span class="status-${entry.result === 'passed' ? 'completed' : 'pending'}">${(entry.result || 'failed').toUpperCase()}</span></td>
-        <td>${entry.notes || 'â€”'}</td>
+        <td>${entry.notes || '-'}</td>
       </tr>`).join('')
     : '<tr><td colspan="6" class="empty-td">No team skill entries yet.</td></tr>';
 }
@@ -808,7 +872,6 @@ async function saveSkillProgress() {
   }
 
   const week = document.getElementById('skillWeekInput').value;
-  const slotsBooked = parseInt(document.getElementById('skillSlotsInput').value, 10);
   const result = document.getElementById('skillResultInput').value;
   const notes = document.getElementById('skillNotesInput').value.trim();
 
@@ -816,19 +879,27 @@ async function saveSkillProgress() {
     showToast('Select the week first.', 'warning');
     return;
   }
-  if (Number.isNaN(slotsBooked) || slotsBooked < 0) {
-    showToast('Enter a valid slots booked value.', 'warning');
+  if (!S.skillSlotDraft.length) {
+    showToast('Add at least one PS slot name for this week.', 'warning');
     return;
   }
 
   const current = getSkillEntries(regNo).filter(entry => entry.week !== week);
-  current.push({ week, slotsBooked, result, notes, updatedAt: Date.now() });
+  current.push({
+    week,
+    slotNames: [...S.skillSlotDraft],
+    slotsBooked: S.skillSlotDraft.length,
+    result,
+    notes,
+    updatedAt: Date.now()
+  });
   S.captainData.skillLogs[regNo] = current;
 
   const ok = await saveCaptainData();
   if (!ok) return;
 
-  document.getElementById('skillSlotsInput').value = '';
+  S.skillSlotDraft = [];
+  document.getElementById('skillSlotNameInput').value = '';
   document.getElementById('skillNotesInput').value = '';
   renderSkillProgressSection();
   showToast('Weekly skill progress saved.', 'success');
