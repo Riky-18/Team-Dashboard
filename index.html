@@ -62,19 +62,13 @@
       user ? window._onFirebaseUser(user) : window._onFirebaseSignOut()
     );
 
-    /* ── Firestore bridges ──────────────────────────────────────────────
-       WHY we stringify tasks:
-       Firestore field names cannot contain dots (e.g. "7376252IT310" is fine,
-       but any key with a dot would be misread as a nested path).
-       We store tasks as a single JSON string to avoid all dot/slash issues.
-    ─────────────────────────────────────────────────────────────────── */
 
-    // Captain writes venue + tasks → Firestore (called on every captain save)
     window._fbSaveCaptainData = async (data) => {
       try {
         await setDoc(CAPTAIN_DOC, {
           venue      : data.venue  || '',
           tasksJson  : JSON.stringify(data.tasks || {}),  // serialised to avoid dot-key issues
+          skillLogsJson : JSON.stringify(data.skillLogs || {}),
           updatedAt  : Date.now(),
         });
         console.log('[NEXUS] Firestore save OK — venue:', data.venue);
@@ -92,11 +86,13 @@
           if (snap.exists()) {
             const d = snap.data();
             let tasks = {};
+            let skillLogs = {};
             try { tasks = JSON.parse(d.tasksJson || '{}'); } catch (_) {}
-            callback({ venue: d.venue || '', tasks });
+            try { skillLogs = JSON.parse(d.skillLogsJson || '{}'); } catch (_) {}
+            callback({ venue: d.venue || '', tasks, skillLogs });
           } else {
             // Document doesn't exist yet — first time setup
-            callback({ venue: '', tasks: {} });
+            callback({ venue: '', tasks: {}, skillLogs: {} });
           }
         },
         (err) => {
@@ -189,6 +185,9 @@
       </a>
       <a href="#" class="nav-item" data-section="events">
         <span class="nav-icon">◆</span><span class="nav-label">Events</span>
+      </a>
+      <a href="#" class="nav-item" data-section="skill-progress">
+        <span class="nav-icon">#</span><span class="nav-label">Skill Progress</span>
       </a>
       <a href="#" class="nav-item captain-only hidden" data-section="captain">
         <span class="nav-icon">◉</span><span class="nav-label">Captain Panel</span>
@@ -395,6 +394,57 @@
         <p class="section-sub">Competitions & participation records</p>
       </div>
       <div class="events-grid" id="eventsGrid"><p class="empty-state">Loading events…</p></div>
+    </section>
+
+    <section class="section" id="sec-skill-progress">
+      <div class="section-header">
+        <h2 class="section-title">PERSONAL SKILL COMPLETION</h2>
+        <p class="section-sub">Track weekly booked slots and pass/fail results</p>
+      </div>
+
+      <div class="captain-card">
+        <h4 class="cc-title">WEEKLY ENTRY</h4>
+        <div class="task-form-row">
+          <input type="week" id="skillWeekInput" class="captain-input">
+          <input type="number" id="skillSlotsInput" class="captain-input" min="0" placeholder="Slots booked">
+          <select id="skillResultInput" class="captain-select">
+            <option value="passed">Passed</option>
+            <option value="failed">Failed</option>
+          </select>
+          <button class="btn-neon" id="saveSkillProgress">SAVE ENTRY</button>
+        </div>
+        <div style="margin-top:12px">
+          <textarea id="skillNotesInput" class="captain-input" rows="3" placeholder="Optional notes for this week"></textarea>
+        </div>
+      </div>
+
+      <div class="captain-card">
+        <h4 class="cc-title">YOUR HISTORY</h4>
+        <div class="table-wrap">
+          <table class="data-table">
+            <thead>
+              <tr><th>WEEK</th><th>SLOTS BOOKED</th><th>RESULT</th><th>NOTES</th></tr>
+            </thead>
+            <tbody id="skillProgressBody">
+              <tr><td colspan="4" class="empty-td">No weekly entries yet.</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      <div class="captain-card captain-only hidden">
+        <h4 class="cc-title">CAPTAIN VIEW</h4>
+        <div class="table-wrap">
+          <table class="data-table">
+            <thead>
+              <tr><th>NAME</th><th>REG. NO.</th><th>WEEK</th><th>SLOTS BOOKED</th><th>RESULT</th><th>NOTES</th></tr>
+            </thead>
+            <tbody id="skillProgressCaptainBody">
+              <tr><td colspan="6" class="empty-td">No team skill entries yet.</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
     </section>
 
     <!-- ── CAPTAIN PANEL ── -->

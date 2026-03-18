@@ -54,7 +54,7 @@ const S = {
   events          : [],
   attendance      : [],
   filteredMembers : [],
-  captainData     : { venue:'', tasks:{} },
+  captainData     : { venue:'', tasks:{}, skillLogs:{} },
   activeSection   : 'dashboard',
   currentMember   : null,       // member open in modal
   taskFilter      : 'all',
@@ -565,6 +565,7 @@ function wireListeners() {
   document.getElementById('assignBulkTask') .addEventListener('click', assignBulkTask);
   document.getElementById('exportTasks')    .addEventListener('click', exportTasks);
   document.getElementById('resetTasks')     .addEventListener('click', resetAllTasks);
+  document.getElementById('saveSkillProgress').addEventListener('click', saveSkillProgress);
   document.getElementById('taskSearchInput').addEventListener('input',  renderTaskTable);
   document.getElementById('taskStatusFilter').addEventListener('change', renderTaskTable);
 
@@ -599,10 +600,11 @@ function navigateTo(sec) {
   document.querySelectorAll('.nav-item').forEach(x=>x.classList.remove('active'));
   document.getElementById(`sec-${sec}`)?.classList.add('active');
   document.querySelector(`.nav-item[data-section="${sec}"]`)?.classList.add('active');
-  const L = {dashboard:'DASHBOARD',members:'MEMBERS',analytics:'ANALYTICS',events:'EVENTS',captain:'CAPTAIN PANEL',attendance:'ATTENDANCE'};
+  const L = {dashboard:'DASHBOARD',members:'MEMBERS',analytics:'ANALYTICS',events:'EVENTS','skill-progress':'SKILL PROGRESS',captain:'CAPTAIN PANEL',attendance:'ATTENDANCE'};
   document.getElementById('topbarSection').textContent = L[sec] || sec.toUpperCase();
   if(sec==='analytics') renderAnalyticsCharts();
   if(sec==='captain')   { renderTaskTable(); updateTaskOverview(); updateVenueDisplay(); }
+  if(sec==='skill-progress') renderSkillProgressSection();
 }
 function toggleSidebar() { document.getElementById('sidebar').classList.toggle('open'); }
 
@@ -618,7 +620,7 @@ function subscribeCaptainData() {
   if (_firestoreUnsub) { _firestoreUnsub(); _firestoreUnsub = null; }
 
   if (typeof window._fbSubscribeCaptainData !== 'function') {
-    S.captainData = { venue: '', tasks: {} };
+    S.captainData = { venue: '', tasks: {}, skillLogs: {} };
     refreshCaptainDataUI();
     return;
   }
@@ -629,8 +631,9 @@ function subscribeCaptainData() {
       //  1. Immediately when a member logs in (current data)
       //  2. Every time captain saves venue or any task (real-time push)
       S.captainData = {
-        venue : data.venue || '',
-        tasks : data.tasks || {},
+        venue     : data.venue || '',
+        tasks     : data.tasks || {},
+        skillLogs : data.skillLogs || {},
       };
 
       // Update everywhere venue/tasks are shown
@@ -657,8 +660,9 @@ async function saveCaptainData() {
   }
   try {
     await window._fbSaveCaptainData({
-      venue : S.captainData.venue,
-      tasks : S.captainData.tasks,
+      venue     : S.captainData.venue,
+      tasks     : S.captainData.tasks,
+      skillLogs : S.captainData.skillLogs,
     });
     return true;
   } catch (e) {
@@ -670,13 +674,14 @@ async function saveCaptainData() {
 
 // Keep loadCaptainData as a no-op initialiser (subscription happens after login)
 function loadCaptainData() {
-  S.captainData = { venue: '', tasks: {} };
+  S.captainData = { venue: '', tasks: {}, skillLogs: {} };
 }
 
 function refreshCaptainDataUI() {
   updateVenueDisplay();
   updateTaskOverview();
   renderMemberStrip();
+  renderSkillProgressSection();
 
   if (S.currentMember) {
     renderModalProfile(S.currentMember);
@@ -745,6 +750,90 @@ async function saveVenue() {
 }
 
 // ── TASKS ─────────────────────────────────────────────────────────
+function getSkillEntries(regNo) {
+  return [...(S.captainData.skillLogs?.[regNo] || [])]
+    .sort((a, b) => (b.week || '').localeCompare(a.week || ''));
+}
+
+function getCurrentWeekValue() {
+  const now = new Date();
+  const utcDate = new Date(Date.UTC(now.getFullYear(), now.getMonth(), now.getDate()));
+  const day = utcDate.getUTCDay() || 7;
+  utcDate.setUTCDate(utcDate.getUTCDate() + 4 - day);
+  const yearStart = new Date(Date.UTC(utcDate.getUTCFullYear(), 0, 1));
+  const weekNo = Math.ceil((((utcDate - yearStart) / 86400000) + 1) / 7);
+  return `${utcDate.getUTCFullYear()}-W${String(weekNo).padStart(2, '0')}`;
+}
+
+function renderSkillProgressSection() {
+  const memberBody = document.getElementById('skillProgressBody');
+  const captainBody = document.getElementById('skillProgressCaptainBody');
+  if (!memberBody || !captainBody) return;
+  const weekInput = document.getElementById('skillWeekInput');
+  if (weekInput && !weekInput.value) weekInput.value = getCurrentWeekValue();
+
+  const regNo = S.loggedInUser?.regNo;
+  const entries = regNo ? getSkillEntries(regNo) : [];
+
+  memberBody.innerHTML = entries.length
+    ? entries.map(entry => `<tr>
+        <td>${entry.week || 'â€”'}</td>
+        <td>${entry.slotsBooked ?? 0}</td>
+        <td><span class="status-${entry.result === 'passed' ? 'completed' : 'pending'}">${(entry.result || 'failed').toUpperCase()}</span></td>
+        <td>${entry.notes || 'â€”'}</td>
+      </tr>`).join('')
+    : '<tr><td colspan="4" class="empty-td">No weekly entries yet.</td></tr>';
+
+  const allEntries = S.members.flatMap(member =>
+    getSkillEntries(member.regNo).map(entry => ({ member, entry }))
+  );
+
+  captainBody.innerHTML = allEntries.length
+    ? allEntries.map(({ member, entry }) => `<tr>
+        <td><strong>${member.name}</strong></td>
+        <td style="font-family:var(--font-mono);color:var(--cyan)">${member.regNo}</td>
+        <td>${entry.week || 'â€”'}</td>
+        <td>${entry.slotsBooked ?? 0}</td>
+        <td><span class="status-${entry.result === 'passed' ? 'completed' : 'pending'}">${(entry.result || 'failed').toUpperCase()}</span></td>
+        <td>${entry.notes || 'â€”'}</td>
+      </tr>`).join('')
+    : '<tr><td colspan="6" class="empty-td">No team skill entries yet.</td></tr>';
+}
+
+async function saveSkillProgress() {
+  const regNo = S.loggedInUser?.regNo;
+  if (!regNo) {
+    showToast('Your account is not linked to a roster member.', 'error');
+    return;
+  }
+
+  const week = document.getElementById('skillWeekInput').value;
+  const slotsBooked = parseInt(document.getElementById('skillSlotsInput').value, 10);
+  const result = document.getElementById('skillResultInput').value;
+  const notes = document.getElementById('skillNotesInput').value.trim();
+
+  if (!week) {
+    showToast('Select the week first.', 'warning');
+    return;
+  }
+  if (Number.isNaN(slotsBooked) || slotsBooked < 0) {
+    showToast('Enter a valid slots booked value.', 'warning');
+    return;
+  }
+
+  const current = getSkillEntries(regNo).filter(entry => entry.week !== week);
+  current.push({ week, slotsBooked, result, notes, updatedAt: Date.now() });
+  S.captainData.skillLogs[regNo] = current;
+
+  const ok = await saveCaptainData();
+  if (!ok) return;
+
+  document.getElementById('skillSlotsInput').value = '';
+  document.getElementById('skillNotesInput').value = '';
+  renderSkillProgressSection();
+  showToast('Weekly skill progress saved.', 'success');
+}
+
 function getTask(regNo) {
   return S.captainData.tasks[regNo] || { title:'', priority:'medium', dueDate:'', status:'pending', remarks:'' };
 }
@@ -782,10 +871,10 @@ function exportTasks() {
 
 async function resetAllTasks() {
   if (!requireCaptain('Reset')) return;
-  if (!confirm('Reset ALL captain data (venue + tasks)? This cannot be undone.')) return;
-  S.captainData = { venue:'', tasks:{} };
+  if (!confirm('Reset venue and tasks? Weekly skill progress entries will be kept.')) return;
+  S.captainData = { venue:'', tasks:{}, skillLogs: S.captainData.skillLogs || {} };
   await saveCaptainData();
-  showToast('All captain data cleared', 'warning');
+  showToast('Venue and tasks cleared', 'warning');
 }
 
 async function markDone(regNo) {
