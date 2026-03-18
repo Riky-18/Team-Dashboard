@@ -14,14 +14,26 @@
 const SHEET_ID = '1hDjwJBT5N_YzPHZNFpZOvYJOyXD5ks8qkClM_psY9Es';
 const CSV_BASE = `https://docs.google.com/spreadsheets/d/${SHEET_ID}/export?format=csv`;
 
-// ← Update these gid values to match YOUR spreadsheet tabs
-// (Click each tab in Google Sheets → URL shows ?gid=XXXXXXXX)
+// ══════════════════════════════════════════════════════════════
+// ★ FIND YOUR GIDs:
+//   1. Open your Google Sheet
+//   2. Click each tab at the bottom
+//   3. Look at the URL — it ends with  #gid=XXXXXXXXX
+//   4. Copy that number and paste it below
+//
+// Your sheet tab order (based on data you shared):
+//   Tab 1 → Details        (first tab = always gid 0)
+//   Tab 2 → Skills
+//   Tab 3 → PS Completion
+//   Tab 4 → Events
+//   Tab 5 → Missed Attendance
+// ══════════════════════════════════════════════════════════════
 const GID = {
-  details    : '0',           // Sheet 1 — Details
-  skills     : '559279686',   // Sheet 2 — Skills
-  ps         : '1889884415',  // Sheet 3 — PS Completion
-  events     : '1647711386',  // Sheet 4 — Events
-  attendance : '952830820',   // Sheet 5 — Missed Attendance
+  details    : '1766801887',  // Tab — Details
+  skills     : '1529264533',  // Tab — Skills
+  ps         : '0',           // Tab — PS Completion
+  events     : '1929646157',  // Tab — Events
+  attendance : '2141076572',  // Tab — Missed Attendance
 };
 
 // ② Captain emails — anyone whose "Role" column = "Captain" is also
@@ -171,95 +183,196 @@ function csvToObjects(text) {
   return data.map(r => { const o={}; hdr.forEach((h,i) => { o[h.trim()] = (r[i]||'').trim(); }); return o; });
 }
 
-// Safely read a column — tries multiple possible header names
+// Safely read a column — fully case-insensitive, trims whitespace
 function col(row, ...keys) {
-  for(const k of keys) {
-    for(const attempt of [k, k.toLowerCase(), k.toUpperCase()]) {
-      if(row[attempt] !== undefined && String(row[attempt]).trim() !== '')
-        return String(row[attempt]).trim();
-    }
+  const norm = {};
+  for (const k in row) norm[k.trim().toLowerCase()] = String(row[k] ?? '').trim();
+  for (const k of keys) {
+    if (row[k] !== undefined && String(row[k]).trim() !== '') return String(row[k]).trim();
+    const lk = k.trim().toLowerCase();
+    if (norm[lk] !== undefined && norm[lk] !== '') return norm[lk];
   }
   return 'N/A';
 }
 
-// ── Row parsers (match your actual sheet column names) ──────────
+// ── SHEET 1: DETAILS ─────────────────────────────────────────────
+// Headers: S. No | NAME | REG .NO. | DEPARTMENT | ROLE |
+//   MOBILE NUMBER | MAIL ID | CGPA | ARREARS COUNT (CURRENT) |
+//   SPECIAL LAB | MEMBER OF SSG | EVENTS ATTENDED | EVENTS WON |
+//   FOREIGN LANGUAGE SELECTED | MODE OF STUDY |
+//   CURRENTLY REGISTERED EVENTS | NOTES
 function parseDetail(r) {
-  const regNo = col(r,'Reg. No.','Reg No','RegNo','Registration Number','Reg.No.');
-  if(!regNo || regNo==='N/A') return null;
+  const regNo = col(r,
+    'REG .NO.','REG. NO.','REG.NO.',
+    'Reg .No.','Reg. No.','Reg.No.',
+    'REG NO','RegNo','REGISTRATION NUMBER'
+  );
+  if (!regNo || regNo === 'N/A') return null;
+
+  const arrearsRaw = col(r,
+    'ARREARS COUNT (CURRENT)','Arrears Count (Current)',
+    'ARREARS COUNT','Arrears Count','ARREARS','Arrears'
+  );
+  const arrears = (arrearsRaw === 'NIL' || arrearsRaw === 'N/A') ? 0 : parseInt(arrearsRaw) || 0;
+
   return {
     regNo,
-    sno           : col(r,'S. No','S.No','sno'),
-    name          : col(r,'Name','name'),
-    dept          : col(r,'Department','Dept','dept'),
-    role          : col(r,'Role','role'),
-    mobile        : col(r,'Mobile Number','Mobile','Phone','mobile'),
-    mail          : col(r,'Mail ID','Email','Email ID','mail'),
-    cgpa          : parseFloat(col(r,'CGPA','cgpa')) || 0,
-    arrears       : parseInt(col(r,'Arrears Count','Arrears','arrears')) || 0,
-    specialLab    : col(r,'Special Lab','specialLab'),
-    ssg           : col(r,'Member of SSG','SSG','ssg'),
-    eventsAttended: parseInt(col(r,'Events Attended','eventsAttended')) || 0,
-    eventsWon     : parseInt(col(r,'Events Won','eventsWon')) || 0,
-    foreignLang   : col(r,'Foreign Language Selected','Foreign Language','foreignLang'),
-    modeOfStudy   : col(r,'Mode of Study','modeOfStudy'),
-    currentEvents : col(r,'Currently Registered Events','Current Events','currentEvents'),
+    sno           : col(r, 'S. No','S. NO','S.No','S.NO'),
+    name          : col(r, 'NAME','Name'),
+    dept          : col(r, 'DEPARTMENT','Department','DEPT','Dept'),
+    role          : col(r, 'ROLE','Role'),
+    mobile        : col(r, 'MOBILE NUMBER','Mobile Number','MOBILE','Mobile'),
+    mail          : col(r, 'MAIL ID','Mail ID','EMAIL','Email'),
+    cgpa          : parseFloat(col(r, 'CGPA','cgpa')) || 0,
+    arrears,
+    specialLab    : col(r, 'SPECIAL LAB','Special Lab'),
+    ssg           : col(r, 'MEMBER OF SSG','Member of SSG','SSG'),
+    eventsAttended: parseInt(col(r, 'EVENTS ATTENDED','Events Attended')) || 0,
+    eventsWon     : parseInt(col(r, 'EVENTS WON','Events Won')) || 0,
+    foreignLang   : col(r, 'FOREIGN LANGUAGE SELECTED','Foreign Language Selected','FOREIGN LANGUAGE','Foreign Language'),
+    modeOfStudy   : col(r, 'MODE OF STUDY','Mode of Study'),
+    currentEvents : col(r, 'CURRENTLY REGISTERED EVENTS','Currently Registered Events','CURRENT EVENTS','Current Events'),
+    notes         : col(r, 'NOTES','Notes'),
   };
 }
+
+// ── SHEET 2: SKILLS ──────────────────────────────────────────────
+// Headers: S. No | NAME | REG. NO. | PRIMARY SKILL 1 | PRIMARY SKILL 2 |
+//   SECONDARY SKILL 1 | SECONDARY SKILL 2 |
+//   SPECIALIZATION SKILL 1 | SPECIALIZATION SKILL 2
 function parseSkill(r) {
-  const regNo = col(r,'Reg. No.','Reg No','RegNo');
-  if(!regNo||regNo==='N/A') return null;
-  return { regNo,
-    primary1  : col(r,'Primary Skill 1','primary1'),
-    primary2  : col(r,'Primary Skill 2','primary2'),
-    secondary1: col(r,'Secondary Skill 1','secondary1'),
-    secondary2: col(r,'Secondary Skill 2','secondary2'),
-    spec1     : col(r,'Specialization Skill 1','spec1'),
-    spec2     : col(r,'Specialization Skill 2','spec2'),
+  const regNo = col(r,
+    'REG. NO.','REG .NO.','REG.NO.',
+    'Reg. No.','Reg .No.','Reg.No.',
+    'REG NO','RegNo'
+  );
+  if (!regNo || regNo === 'N/A') return null;
+  return {
+    regNo,
+    name       : col(r, 'NAME','Name'),
+    primary1   : col(r, 'PRIMARY SKILL 1',        'Primary Skill 1'),
+    primary2   : col(r, 'PRIMARY SKILL 2',        'Primary Skill 2'),
+    secondary1 : col(r, 'SECONDARY SKILL 1',      'Secondary Skill 1'),
+    secondary2 : col(r, 'SECONDARY SKILL 2',      'Secondary Skill 2'),
+    spec1      : col(r, 'SPECIALIZATION SKILL 1', 'Specialization Skill 1'),
+    spec2      : col(r, 'SPECIALIZATION SKILL 2', 'Specialization Skill 2'),
   };
 }
+
+// ── SHEET 3: PS COMPLETION ───────────────────────────────────────
+// Headers: S. No | NAME | REG .NO. | DEPT. | ROLE |
+//   REWARD POINTS | ACTIVITY POINTS |
+//   MANDATORY PS COMPLETION (YES/NO) |
+//   [Date range cols with sub-headers: ATTEMPTS / CLEARED]
 function parsePS(r) {
-  const regNo = col(r,'Reg. No.','Reg No','RegNo');
-  if(!regNo||regNo==='N/A') return null;
-  return { regNo,
-    rewardPts           : parseInt(col(r,'Reward Points','rewardPts'))||0,
-    activityPts         : parseInt(col(r,'Activity Points','activityPts'))||0,
-    mandatoryCompletion : col(r,'Mandatory PS Completion','mandatoryCompletion'),
-    weeklyAttempts      : parseInt(col(r,'Weekly Attempts','weeklyAttempts'))||0,
-    weeklyCleared       : parseInt(col(r,'Weekly Cleared','weeklyCleared'))||0,
+  const regNo = col(r,
+    'REG .NO.','REG. NO.','REG.NO.',
+    'Reg .No.','Reg. No.','Reg.No.',
+    'REG NO','RegNo'
+  );
+  if (!regNo || regNo === 'N/A') return null;
+
+  // Sum all weekly ATTEMPTS and CLEARED columns
+  let totalAttempts = 0, totalCleared = 0;
+  for (const k in r) {
+    const kl = k.trim().toLowerCase();
+    if (kl === 'attempts') totalAttempts += parseInt(r[k]) || 0;
+    if (kl === 'cleared')  totalCleared  += parseInt(r[k]) || 0;
+  }
+
+  return {
+    regNo,
+    name                : col(r, 'NAME','Name'),
+    dept                : col(r, 'DEPT.','DEPT','Dept.','Dept','DEPARTMENT','Department'),
+    role                : col(r, 'ROLE','Role'),
+    rewardPts           : parseInt(col(r, 'REWARD POINTS','Reward Points'))   || 0,
+    activityPts         : parseInt(col(r, 'ACTIVITY POINTS','Activity Points')) || 0,
+    mandatoryCompletion : col(r,
+                            'MANDATORY PS COMPLETION (YES/NO)',
+                            'Mandatory PS Completion (YES/NO)',
+                            'MANDATORY PS COMPLETION',
+                            'Mandatory PS Completion'
+                          ),
+    weeklyAttempts : totalAttempts,
+    weeklyCleared  : totalCleared,
   };
 }
+
+// ── SHEET 4: EVENTS ──────────────────────────────────────────────
+// Headers: __S.NO__ | EVENTS | MONTH - YEAR | HOST | Type | DOCUMENTATION
 function parseEvent(r) {
-  return { name:col(r,'Event Name','name'), monthYear:col(r,'Month-Year','monthYear'), host:col(r,'Host','host'), type:col(r,'Type','type') };
+  const name = col(r, 'EVENTS','Events','EVENT NAME','Event Name','NAME','Name');
+  if (!name || name === 'N/A') return null;
+  return {
+    name,
+    monthYear : col(r, 'MONTH - YEAR','Month - Year','MONTH-YEAR','Month-Year','MONTH','Month'),
+    host      : col(r, 'HOST','Host'),
+    type      : col(r, 'Type','TYPE','type'),
+    doc       : col(r, 'DOCUMENTATION','Documentation'),
+  };
 }
+
+// ── SHEET 5: MISSED ATTENDANCE ───────────────────────────────────
 function parseAttend(r) {
-  return { date:col(r,'Date','date'), regNo:col(r,'Register Number','Reg No','regNo'),
-           name:col(r,'Name','name'), mail:col(r,'Mail ID','Email','mail'),
-           missedHour:parseInt(col(r,'Missed Hour','Missed Hours','missedHour'))||0 };
+  return {
+    date      : col(r, 'DATE','Date'),
+    regNo     : col(r, 'REGISTER NUMBER','Register Number','REG .NO.','REG. NO.','REG NO','Reg No'),
+    name      : col(r, 'NAME','Name'),
+    mail      : col(r, 'MAIL ID','Mail ID','EMAIL','Email'),
+    missedHour: parseInt(col(r, 'MISSED HOUR','Missed Hour','MISSED HOURS','Missed Hours')) || 0,
+  };
 }
+
+// Normalise regNo — strip ALL internal spaces for safe key matching
+// e.g. "7376252IT310" == "7376252IT310", "7376252 IT310" → same
+const normReg = r => (r||'').replace(/\s+/g,'').toUpperCase();
 
 function mergeMembers(details, skills, ps) {
   const sm={}, pm={};
-  skills.forEach(s => sm[s.regNo]=s);
-  ps.forEach(p => pm[p.regNo]=p);
-  return details.map(d => ({ ...d, skills: sm[d.regNo]||{}, ps: pm[d.regNo]||{} }));
+  skills.forEach(s => { sm[normReg(s.regNo)] = s; });
+  ps.forEach(p     => { pm[normReg(p.regNo)] = p; });
+  return details.map(d => ({
+    ...d,
+    skills : sm[normReg(d.regNo)] || {},
+    ps     : pm[normReg(d.regNo)] || {},
+  }));
 }
 
 async function loadSheetData() {
-  setLoader('FETCHING TEAM DATA FROM GOOGLE SHEETS…');
+  setLoader('FETCHING TEAM DATA…');
   const settled = await Promise.allSettled([
-    fetchCSV(GID.details), fetchCSV(GID.skills), fetchCSV(GID.ps),
-    fetchCSV(GID.events),  fetchCSV(GID.attendance),
+    fetchCSV(GID.details),
+    fetchCSV(GID.skills),
+    fetchCSV(GID.ps),
+    fetchCSV(GID.events),
+    fetchCSV(GID.attendance),
   ]);
-  const ok = r => r.status==='fulfilled' ? csvToObjects(r.value) : [];
-  const details  = ok(settled[0]).map(parseDetail).filter(Boolean);
-  const skills   = ok(settled[1]).map(parseSkill).filter(Boolean);
-  const ps       = ok(settled[2]).map(parsePS).filter(Boolean);
-  S.members      = mergeMembers(details, skills, ps);
-  S.events       = ok(settled[3]).map(parseEvent);
-  S.attendance   = ok(settled[4]).map(parseAttend);
+
+  const ok = res => res.status === 'fulfilled' ? csvToObjects(res.value) : [];
+
+  const rawDetails = ok(settled[0]);
+  const rawSkills  = ok(settled[1]);
+  const rawPS      = ok(settled[2]);
+  const rawEvents  = ok(settled[3]);
+  const rawAttend  = ok(settled[4]);
+
+  const details = rawDetails.map(parseDetail).filter(Boolean);
+  const skills  = rawSkills .map(parseSkill) .filter(Boolean);
+  const ps      = rawPS     .map(parsePS)    .filter(Boolean);
+  const events  = rawEvents .map(parseEvent) .filter(Boolean);
+  const attend  = rawAttend .map(parseAttend);
+
+  S.members         = mergeMembers(details, skills, ps);
+  S.events          = events;
+  S.attendance      = attend;
   S.filteredMembers = [...S.members];
-  if(!details.length)
-    showToast('No data loaded — make the Google Sheet public (Anyone with link → Viewer) and verify GID values.','warning');
+
+  // Debug info in console
+  console.log(`[NEXUS] Loaded: ${details.length} members, ${skills.length} skills, ${ps.length} PS rows, ${events.length} events`);
+
+  if (!details.length) {
+    showToast('⚠ Sheet returned 0 rows — check: (1) Sheet is public, (2) GID values are correct.', 'warning');
+  }
 }
 
 // ═══════════════════════════════════════════════════════════════
@@ -653,13 +766,16 @@ function clearFilters() {
   applyFilters();
 }
 
-// ── Role badge class ───────────────────────────────────────────────
+// ── Role badge class — matches actual roles in your sheet ──────────
+// Roles: CAPTAIN, VICE-CAPTAIN, VICE CAPTAIN, STRATEGIST,
+//        TEAM MANAGER, TEAM-MANAGER, MEMBER
 function badgeClass(role='') {
-  const r = role.toLowerCase();
-  if(r.includes('captain')&&!r.includes('vice')) return 'badge-captain';
-  if(r.includes('vice'))                          return 'badge-vice-captain';
-  if(r.includes('strategist'))                    return 'badge-strategist';
-  if(r.includes('mentor'))                        return 'badge-mentor';
+  const r = role.toLowerCase().replace(/-/g,' ');
+  if (r === 'captain')                            return 'badge-captain';
+  if (r.includes('vice'))                         return 'badge-vice-captain';
+  if (r.includes('strateg'))                      return 'badge-strategist';
+  if (r.includes('team manager') || r.includes('manager')) return 'badge-manager';
+  if (r.includes('mentor'))                       return 'badge-mentor';
   return 'badge-member';
 }
 
