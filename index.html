@@ -19,6 +19,7 @@
              signOut as fbSignOut,
              onAuthStateChanged } from "https://www.gstatic.com/firebasejs/12.10.0/firebase-auth.js";
     import { getFirestore,
+             collection,
              doc,
              setDoc,
              onSnapshot }        from "https://www.gstatic.com/firebasejs/12.10.0/firebase-firestore.js";
@@ -40,6 +41,7 @@
 
     // Single shared Firestore document for the whole team
     const CAPTAIN_DOC = doc(db, 'nexus', 'captainData');
+    const SKILL_LOGS_COL = collection(db, 'skillLogs');
 
     const provider = new GoogleAuthProvider();
     provider.setCustomParameters({ prompt: 'select_account' });
@@ -68,7 +70,6 @@
         await setDoc(CAPTAIN_DOC, {
           venue      : data.venue  || '',
           tasksJson  : JSON.stringify(data.tasks || {}),  // serialised to avoid dot-key issues
-          skillLogsJson : JSON.stringify(data.skillLogs || {}),
           updatedAt  : Date.now(),
         });
         console.log('[NEXUS] Firestore save OK — venue:', data.venue);
@@ -86,13 +87,11 @@
           if (snap.exists()) {
             const d = snap.data();
             let tasks = {};
-            let skillLogs = {};
             try { tasks = JSON.parse(d.tasksJson || '{}'); } catch (_) {}
-            try { skillLogs = JSON.parse(d.skillLogsJson || '{}'); } catch (_) {}
-            callback({ venue: d.venue || '', tasks, skillLogs });
+            callback({ venue: d.venue || '', tasks });
           } else {
             // Document doesn't exist yet — first time setup
-            callback({ venue: '', tasks: {}, skillLogs: {} });
+            callback({ venue: '', tasks: {} });
           }
         },
         (err) => {
@@ -101,6 +100,47 @@
         }
       );
       return unsub; // returned so script.js can unsubscribe on sign-out
+    };
+
+    window._fbSaveMySkillLog = async (data) => {
+      const emailKey = (data.email || '').trim().toLowerCase();
+      if (!emailKey) throw new Error('Missing email for skill log save.');
+
+      await setDoc(doc(SKILL_LOGS_COL, emailKey), {
+        email      : emailKey,
+        regNo      : data.regNo || '',
+        name       : data.name || '',
+        entriesJson: JSON.stringify(data.entries || []),
+        updatedAt  : Date.now(),
+      });
+    };
+
+    window._fbSubscribeSkillLogs = (callback, onError) => {
+      const unsub = onSnapshot(
+        SKILL_LOGS_COL,
+        (snap) => {
+          const logs = {};
+          snap.forEach((skillDoc) => {
+            const d = skillDoc.data() || {};
+            let entries = [];
+            try { entries = JSON.parse(d.entriesJson || '[]'); } catch (_) {}
+            if (d.regNo) {
+              logs[d.regNo] = {
+                email  : d.email || skillDoc.id,
+                regNo  : d.regNo,
+                name   : d.name || '',
+                entries,
+              };
+            }
+          });
+          callback(logs);
+        },
+        (err) => {
+          console.warn('[NEXUS] Skill logs snapshot error:', err.code, err.message);
+          if (typeof onError === 'function') onError(err);
+        }
+      );
+      return unsub;
     };
   </script>
   <!-- ══════════════════════════════════════════════════════════════════ -->

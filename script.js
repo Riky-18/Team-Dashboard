@@ -54,7 +54,8 @@ const S = {
   events          : [],
   attendance      : [],
   filteredMembers : [],
-  captainData     : { venue:'', tasks:{}, skillLogs:{} },
+  captainData     : { venue:'', tasks:{} },
+  skillLogs       : {},
   activeSection   : 'dashboard',
   currentMember   : null,       // member open in modal
   taskFilter      : 'all',
@@ -427,6 +428,7 @@ async function loginWithEmail(email, displayName, picture) {
   applyModeUI();
   renderUserProfile();
   subscribeCaptainData(); // start Firestore live listener — works for both captain & members
+  subscribeSkillLogs();
   renderAll();
 
   showToast(
@@ -448,6 +450,7 @@ function showLoginError(msg) {
 // ═══════════════════════════════════════════════════════════════
 function signOut() {
   if (_firestoreUnsub) { _firestoreUnsub(); _firestoreUnsub = null; }
+  if (_skillLogsUnsub) { _skillLogsUnsub(); _skillLogsUnsub = null; }
   if (typeof window._fbSignOut === 'function') window._fbSignOut().catch(()=>{});
   location.reload();
 }
@@ -622,6 +625,7 @@ function toggleSidebar() { document.getElementById('sidebar').classList.toggle('
 // Captain writes → all members see updates in real time via onSnapshot
 // ═══════════════════════════════════════════════════════════════
 let _firestoreUnsub = null; // holds the onSnapshot unsubscribe fn
+let _skillLogsUnsub = null; // holds the skill logs unsubscribe fn
 
 // Called after login — subscribe to live Firestore updates
 // Fires for BOTH captain and members — everyone gets real-time venue+task
@@ -629,7 +633,7 @@ function subscribeCaptainData() {
   if (_firestoreUnsub) { _firestoreUnsub(); _firestoreUnsub = null; }
 
   if (typeof window._fbSubscribeCaptainData !== 'function') {
-    S.captainData = { venue: '', tasks: {}, skillLogs: {} };
+    S.captainData = { venue: '', tasks: {} };
     refreshCaptainDataUI();
     return;
   }
@@ -640,9 +644,8 @@ function subscribeCaptainData() {
       //  1. Immediately when a member logs in (current data)
       //  2. Every time captain saves venue or any task (real-time push)
       S.captainData = {
-        venue     : data.venue || '',
-        tasks     : data.tasks || {},
-        skillLogs : data.skillLogs || {},
+        venue : data.venue || '',
+        tasks : data.tasks || {},
       };
 
       // Update everywhere venue/tasks are shown
@@ -661,6 +664,27 @@ function subscribeCaptainData() {
   );
 }
 
+function subscribeSkillLogs() {
+  if (_skillLogsUnsub) { _skillLogsUnsub(); _skillLogsUnsub = null; }
+
+  if (typeof window._fbSubscribeSkillLogs !== 'function') {
+    S.skillLogs = {};
+    renderSkillProgressSection();
+    return;
+  }
+
+  _skillLogsUnsub = window._fbSubscribeSkillLogs(
+    (logs) => {
+      S.skillLogs = logs || {};
+      renderSkillProgressSection();
+    },
+    (err) => {
+      const detail = err?.code ? ` (${err.code})` : '';
+      showToast(`Skill sync failed${detail}. Check Firestore rules.`, 'error');
+    }
+  );
+}
+
 // Write to Firestore — only captain can call this (requireCaptain guards above)
 async function saveCaptainData() {
   if (typeof window._fbSaveCaptainData !== 'function') {
@@ -669,9 +693,8 @@ async function saveCaptainData() {
   }
   try {
     await window._fbSaveCaptainData({
-      venue     : S.captainData.venue,
-      tasks     : S.captainData.tasks,
-      skillLogs : S.captainData.skillLogs,
+      venue : S.captainData.venue,
+      tasks : S.captainData.tasks,
     });
     return true;
   } catch (e) {
@@ -683,7 +706,8 @@ async function saveCaptainData() {
 
 // Keep loadCaptainData as a no-op initialiser (subscription happens after login)
 function loadCaptainData() {
-  S.captainData = { venue: '', tasks: {}, skillLogs: {} };
+  S.captainData = { venue: '', tasks: {} };
+  S.skillLogs = {};
 }
 
 function refreshCaptainDataUI() {
@@ -760,7 +784,7 @@ async function saveVenue() {
 
 // ── TASKS ─────────────────────────────────────────────────────────
 function getSkillEntries(regNo) {
-  return [...(S.captainData.skillLogs?.[regNo] || [])]
+  return [...(S.skillLogs?.[regNo]?.entries || [])]
     .sort((a, b) => (b.week || '').localeCompare(a.week || ''));
 }
 
@@ -913,10 +937,29 @@ async function saveSkillProgress() {
     notes,
     updatedAt: Date.now()
   });
-  S.captainData.skillLogs[regNo] = current;
+  if (typeof window._fbSaveMySkillLog !== 'function') {
+    showToast('Skill log storage is not ready.', 'error');
+    return;
+  }
 
-  const ok = await saveCaptainData();
-  if (!ok) return;
+  try {
+    await window._fbSaveMySkillLog({
+      email   : S.loggedInUser.email,
+      regNo,
+      name    : S.loggedInUser.name,
+      entries : current,
+    });
+    S.skillLogs[regNo] = {
+      email  : S.loggedInUser.email,
+      regNo,
+      name   : S.loggedInUser.name,
+      entries: current,
+    };
+  } catch (e) {
+    showToast('Skill progress save failed. Check Firestore rules.', 'error');
+    console.error('[NEXUS] saveSkillProgress error:', e);
+    return;
+  }
 
   S.skillSlotDraft = [];
   document.getElementById('skillSlotNameInput').value = '';
@@ -963,7 +1006,7 @@ function exportTasks() {
 async function resetAllTasks() {
   if (!requireCaptain('Reset')) return;
   if (!confirm('Reset venue and tasks? Weekly skill progress entries will be kept.')) return;
-  S.captainData = { venue:'', tasks:{}, skillLogs: S.captainData.skillLogs || {} };
+  S.captainData = { venue:'', tasks:{} };
   await saveCaptainData();
   showToast('Venue and tasks cleared', 'warning');
 }

@@ -19,6 +19,13 @@ service cloud.firestore {
       allow write: if isCaptain();
     }
 
+    match /skillLogs/{userEmail} {
+      allow read: if signedIn();
+      allow write: if signedIn()
+        && request.auth.token.email == userEmail
+        && request.resource.data.email == request.auth.token.email;
+    }
+
     match /{document=**} {
       allow read, write: if false;
     }
