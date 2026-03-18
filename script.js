@@ -623,24 +623,30 @@ function subscribeCaptainData() {
     return;
   }
 
-  _firestoreUnsub = window._fbSubscribeCaptainData((data) => {
-    // This callback fires:
-    //  1. Immediately when a member logs in (current data)
-    //  2. Every time captain saves venue or any task (real-time push)
-    S.captainData = {
-      venue : data.venue || '',
-      tasks : data.tasks || {},
-    };
+  _firestoreUnsub = window._fbSubscribeCaptainData(
+    (data) => {
+      // This callback fires:
+      //  1. Immediately when a member logs in (current data)
+      //  2. Every time captain saves venue or any task (real-time push)
+      S.captainData = {
+        venue : data.venue || '',
+        tasks : data.tasks || {},
+      };
 
-    // Update everywhere venue/tasks are shown
-    refreshCaptainDataUI();
+      // Update everywhere venue/tasks are shown
+      refreshCaptainDataUI();
 
-    // Re-render member cards so task status badges stay live
-    if (S.members.length) {
-      renderMemberCards(S.filteredMembers.length ? S.filteredMembers : S.members);
-      if (S.activeSection === 'captain') renderTaskTable();
+      // Re-render member cards so task status badges stay live
+      if (S.members.length) {
+        renderMemberCards(S.filteredMembers.length ? S.filteredMembers : S.members);
+        if (S.activeSection === 'captain') renderTaskTable();
+      }
+    },
+    (err) => {
+      const detail = err?.code ? ` (${err.code})` : '';
+      showToast(`Live sync failed${detail}. Check Firestore rules.`, 'error');
     }
-  });
+  );
 }
 
 // Write to Firestore — only captain can call this (requireCaptain guards above)

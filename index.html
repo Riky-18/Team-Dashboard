@@ -80,13 +80,12 @@
         console.log('[NEXUS] Firestore save OK — venue:', data.venue);
       } catch (e) {
         console.error('[NEXUS] Firestore write error:', e);
-        if (typeof window._onFirebaseError === 'function')
-          window._onFirebaseError('Firestore save failed: ' + e.message);
+        throw e;
       }
     };
 
     // All clients subscribe to this — fires immediately + on every captain change
-    window._fbSubscribeCaptainData = (callback) => {
+    window._fbSubscribeCaptainData = (callback, onError) => {
       const unsub = onSnapshot(
         CAPTAIN_DOC,
         (snap) => {
@@ -102,7 +101,7 @@
         },
         (err) => {
           console.warn('[NEXUS] Firestore snapshot error:', err.code, err.message);
-          callback({ venue: '', tasks: {} });
+          if (typeof onError === 'function') onError(err);
         }
       );
       return unsub; // returned so script.js can unsubscribe on sign-out

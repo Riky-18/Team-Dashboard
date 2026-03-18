@@ -1,0 +1,26 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function signedIn() {
+      return request.auth != null;
+    }
+
+    // Replace these with the real Google accounts allowed to update venue/tasks.
+    function isCaptain() {
+      return signedIn() && request.auth.token.email in [
+        "captain1@gmail.com",
+        "captain2@gmail.com"
+      ];
+    }
+
+    match /nexus/captainData {
+      allow read: if signedIn();
+      allow write: if isCaptain();
+    }
+
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}
