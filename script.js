@@ -619,8 +619,7 @@ function subscribeCaptainData() {
 
   if (typeof window._fbSubscribeCaptainData !== 'function') {
     S.captainData = { venue: '', tasks: {} };
-    updateVenueDisplay();
-    renderMemberStrip();
+    refreshCaptainDataUI();
     return;
   }
 
@@ -634,9 +633,7 @@ function subscribeCaptainData() {
     };
 
     // Update everywhere venue/tasks are shown
-    updateVenueDisplay();
-    updateTaskOverview();
-    renderMemberStrip(); // member-facing dashboard strip
+    refreshCaptainDataUI();
 
     // Re-render member cards so task status badges stay live
     if (S.members.length) {
@@ -670,6 +667,17 @@ function loadCaptainData() {
   S.captainData = { venue: '', tasks: {} };
 }
 
+function refreshCaptainDataUI() {
+  updateVenueDisplay();
+  updateTaskOverview();
+  renderMemberStrip();
+
+  if (S.currentMember) {
+    renderModalProfile(S.currentMember);
+    if (S.mode === 'captain') renderModalTask(S.currentMember);
+  }
+}
+
 function updateVenueDisplay() {
   const v = S.captainData.venue || 'Not Set';
   // Topbar pill
@@ -678,6 +686,9 @@ function updateVenueDisplay() {
   // Captain input field
   const inp = document.getElementById('venueInput');
   if (inp) inp.value = S.captainData.venue || '';
+  // Dashboard banner
+  const bv = document.getElementById('bannerVenue');
+  if (bv) bv.textContent = v;
 }
 
 // ── MEMBER STRIP — live venue + personal task on the dashboard ────
@@ -722,6 +733,7 @@ async function saveVenue() {
   const v = (document.getElementById('venueInput').value || '').trim();
   if (!v) { showToast('Enter a venue first', 'warning'); return; }
   S.captainData.venue = v;
+  refreshCaptainDataUI();
   const ok = await saveCaptainData();
   if (ok) showToast('✓ Venue saved — all members will see it instantly', 'success');
 }
@@ -779,19 +791,6 @@ async function markDone(regNo) {
   showToast('Marked as completed', 'success');
 }
 
-function updateVenueDisplay() {
-  const v = S.captainData.venue || 'Not Set';
-  // Topbar pill
-  const vt = document.getElementById('venueText');
-  if (vt) vt.textContent = 'Venue: ' + v;
-  // Captain panel input
-  const inp = document.getElementById('venueInput');
-  if (inp) inp.value = S.captainData.venue || '';
-  // Dashboard banner
-  const bv = document.getElementById('bannerVenue');
-  if (bv) bv.textContent = v;
-}
-
 function updateTaskOverview() {
   const all       = Object.values(S.captainData.tasks);
   const pending   = all.filter(t => t.status === 'pending' || t.status === 'in-progress').length;
@@ -827,8 +826,7 @@ function renderAll() {
   renderAttendanceTable();
   renderDashboardCharts();
   renderRecentActivity();
-  updateVenueDisplay();
-  updateTaskOverview();
+  refreshCaptainDataUI();
 }
 
 // ── Summary cards ─────────────────────────────────────────────────
@@ -930,7 +928,7 @@ function renderMemberCards(members) {
   }).join('');
 }
 
-// ── Member table ──────────────────────────────────────────────────
+// Member table
 function renderMemberTable(members) {
   document.getElementById('tableHead').innerHTML = `<tr>
     <th>#</th><th>NAME</th><th>REG. NO.</th><th>DEPT</th><th>ROLE</th>
@@ -958,7 +956,7 @@ function setView(mode) {
   document.getElementById('viewTable')   .classList.toggle('active', mode==='table');
 }
 
-// ── Events section ────────────────────────────────────────────────
+//  Events section 
 function renderEventsSection() {
   const grid = document.getElementById('eventsGrid');
   if(!S.events.length) { grid.innerHTML='<p class="empty-state">No events data found in sheet.</p>'; return; }

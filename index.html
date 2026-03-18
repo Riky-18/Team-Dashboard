@@ -488,10 +488,9 @@
       </div>
     </section>
 
-  </div><!-- /main-content -->
-</div><!-- /mainApp -->
+  </div>
+</div>
 
-<!-- ══════════════ MEMBER MODAL ══════════════ -->
 <div id="memberModal" class="modal-overlay hidden">
   <div class="modal-box member-modal">
     <button class="modal-close" id="closeModal">✕</button>
@@ -538,18 +537,16 @@
   </div>
 </div>
 
-<!-- ══════════════ TOAST ══════════════ -->
 <div id="toastContainer" class="toast-container"></div>
 
 <script src="script.js"></script>
-<!-- ══ HARD FAILSAFE: loader always disappears after 5s no matter what ══ -->
 <script>
   setTimeout(function() {
     var l = document.getElementById('loader');
     if (l && !l.classList.contains('hidden')) {
       l.style.opacity = '0';
       setTimeout(function() { l.classList.add('hidden'); }, 500);
-      // Also show login screen if still hidden
+
       var r = document.getElementById('roleScreen');
       var a = document.getElementById('mainApp');
       if (r && r.classList.contains('hidden') && a && a.classList.contains('hidden')) {
