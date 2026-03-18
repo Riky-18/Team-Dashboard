@@ -9,8 +9,7 @@ service cloud.firestore {
     // Replace these with the real Google accounts allowed to update venue/tasks.
     function isCaptain() {
       return signedIn() && request.auth.token.email in [
-        "captain1@gmail.com",
-        "captain2@gmail.com"
+        "ritviks.it25@bitsathy.ac.in"
       ];
     }
 
