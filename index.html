@@ -1,0 +1,549 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>NEXUS — Team Command Center</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@400;600;700;900&family=Share+Tech+Mono&family=Rajdhani:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+  <!-- SheetJS -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+  <!-- Chart.js -->
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+  <!-- Google Identity Services -->
+  <script src="https://accounts.google.com/gsi/client" async defer></script>
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+
+<!-- ══════════════ LOADER ══════════════ -->
+<div id="loader" class="loader-overlay">
+  <div class="loader-box">
+    <div class="loader-ring"></div>
+    <div class="loader-ring r2"></div>
+    <div class="loader-ring r3"></div>
+    <p class="loader-text">INITIALIZING NEXUS</p>
+    <p class="loader-sub" id="loaderSub">LOADING SYSTEMS...</p>
+  </div>
+</div>
+
+<!-- ══════════════ LOGIN SCREEN ══════════════ -->
+<div id="roleScreen" class="role-screen hidden">
+  <div class="role-bg-grid"></div>
+  <div class="scan-line"></div>
+  <div class="role-container">
+    <div class="role-logo">
+      <span class="logo-n">N</span><span class="logo-e">E</span><span class="logo-x">X</span><span class="logo-u">U</span><span class="logo-s">S</span>
+    </div>
+    <p class="role-tagline">TEAM COMMAND CENTER</p>
+
+    <!-- Login Card -->
+    <div class="login-card" id="loginCard">
+      <div class="login-status-row">
+        <span class="login-dot"></span>
+        <span class="login-status-text">AWAITING AUTHENTICATION</span>
+      </div>
+      <p class="login-desc">Sign in with your team Google account to continue. Access level is determined automatically.</p>
+
+      <!-- Google Sign-In Button (rendered by GSI) -->
+      <div id="googleSignInBtn" class="google-btn-wrap"></div>
+
+      <!-- Dev/Demo bypass -->
+      <div class="login-divider"><span>OR</span></div>
+      <div class="demo-logins">
+        <button class="demo-btn" id="demoMemberBtn">
+          <span class="demo-icon">◈</span>
+          <div>
+            <div class="demo-label">DEMO — MEMBER</div>
+            <div class="demo-sub">arjun@college.edu</div>
+          </div>
+        </button>
+        <button class="demo-btn captain" id="demoCaptainBtn">
+          <span class="demo-icon">◉</span>
+          <div>
+            <div class="demo-label">DEMO — CAPTAIN</div>
+            <div class="demo-sub">arjun@college.edu (Captain)</div>
+          </div>
+        </button>
+      </div>
+
+      <p class="login-note">⚑ Google login matches your email to the team roster. Captains get venue edit access.</p>
+    </div>
+
+    <!-- Login Error State -->
+    <div id="loginError" class="login-error-box hidden">
+      <span class="login-err-icon">⚠</span>
+      <div>
+        <p class="login-err-title">ACCESS DENIED</p>
+        <p class="login-err-sub" id="loginErrMsg">Email not found in team roster.</p>
+      </div>
+      <button class="btn-ghost-sm" id="loginRetry">RETRY</button>
+    </div>
+  </div>
+</div>
+
+<!-- ══════════════ CAPTAIN PIN MODAL ══════════════ -->
+<div id="pinModal" class="modal-overlay hidden">
+  <div class="modal-box pin-modal">
+    <h3 class="modal-title">CAPTAIN AUTH</h3>
+    <p class="modal-sub">Enter captain PIN to access control panel</p>
+    <div class="pin-inputs">
+      <input type="password" class="pin-input" maxlength="1" data-idx="0">
+      <input type="password" class="pin-input" maxlength="1" data-idx="1">
+      <input type="password" class="pin-input" maxlength="1" data-idx="2">
+      <input type="password" class="pin-input" maxlength="1" data-idx="3">
+    </div>
+    <p class="pin-hint">Default PIN: 1234</p>
+    <div class="modal-actions">
+      <button class="btn-ghost" id="pinCancel">CANCEL</button>
+      <button class="btn-neon" id="pinSubmit">AUTHENTICATE</button>
+    </div>
+    <p id="pinError" class="pin-error hidden">INVALID PIN — ACCESS DENIED</p>
+  </div>
+</div>
+
+<!-- ══════════════ MAIN APP ══════════════ -->
+<div id="mainApp" class="main-app hidden">
+
+  <!-- SIDEBAR -->
+  <aside class="sidebar" id="sidebar">
+    <div class="sidebar-logo">
+      <span class="sb-logo-text">NEXUS</span>
+      <span class="sb-logo-tag">v2.0</span>
+    </div>
+    <div class="sidebar-mode" id="sbModeTag">● MEMBER MODE</div>
+    <nav class="sidebar-nav">
+      <a href="#" class="nav-item active" data-section="dashboard">
+        <span class="nav-icon">⬡</span><span class="nav-label">Dashboard</span>
+      </a>
+      <a href="#" class="nav-item" data-section="members">
+        <span class="nav-icon">◈</span><span class="nav-label">Members</span>
+      </a>
+      <a href="#" class="nav-item" data-section="analytics">
+        <span class="nav-icon">◎</span><span class="nav-label">Analytics</span>
+      </a>
+      <a href="#" class="nav-item" data-section="events">
+        <span class="nav-icon">◆</span><span class="nav-label">Events</span>
+      </a>
+      <a href="#" class="nav-item captain-only hidden" data-section="captain">
+        <span class="nav-icon">◉</span><span class="nav-label">Captain Panel</span>
+        <span class="nav-badge">CAP</span>
+      </a>
+      <a href="#" class="nav-item captain-only hidden" data-section="attendance">
+        <span class="nav-icon">▣</span><span class="nav-label">Attendance</span>
+      </a>
+    </nav>
+    <div class="sidebar-bottom">
+      <!-- Logged-in user display -->
+      <div class="sidebar-user" id="sidebarUser">
+        <div class="sb-user-avatar" id="sbUserAvatar">?</div>
+        <div class="sb-user-info">
+          <div class="sb-user-name" id="sbUserName">Not logged in</div>
+          <div class="sb-user-email" id="sbUserEmail">—</div>
+        </div>
+      </div>
+      <label class="upload-btn" for="excelUpload">
+        <span class="upload-icon">⊕</span> UPLOAD EXCEL
+        <input type="file" id="excelUpload" accept=".xlsx,.xls" style="display:none">
+      </label>
+      <button class="btn-outline-sm" id="switchRole">⏻ SIGN OUT</button>
+    </div>
+  </aside>
+
+  <!-- MAIN CONTENT -->
+  <div class="main-content">
+
+    <!-- TOP NAVBAR -->
+    <header class="topbar">
+      <button class="hamburger" id="hamburger">☰</button>
+      <div class="topbar-title">
+        <span id="topbarSection">DASHBOARD</span>
+        <span class="topbar-sep">|</span>
+        <span class="topbar-team">TEAM NEXUS</span>
+      </div>
+      <div class="topbar-right">
+        <div class="venue-display" id="venueDisplay">
+          <span class="venue-icon">◎</span>
+          <span id="venueText">Venue: Not Set</span>
+        </div>
+        <div class="mode-badge" id="modeBadge">MEMBER</div>
+        <div class="topbar-user" id="topbarUser">
+          <div class="topbar-avatar" id="topbarAvatar">?</div>
+          <div class="topbar-user-info">
+            <div class="topbar-user-name" id="topbarUserName">Guest</div>
+            <div class="topbar-user-role" id="topbarUserRole">—</div>
+          </div>
+        </div>
+      </div>
+    </header>
+
+    <!-- ── SECTION: DASHBOARD ── -->
+    <section class="section active" id="sec-dashboard">
+      <div class="section-header">
+        <h2 class="section-title">COMMAND OVERVIEW</h2>
+        <p class="section-sub">Real-time team intelligence</p>
+      </div>
+
+      <!-- Summary Cards -->
+      <div class="summary-grid" id="summaryGrid">
+        <div class="summary-card" data-color="cyan">
+          <div class="sc-icon">◈</div>
+          <div class="sc-data">
+            <span class="sc-num" id="sc-total">--</span>
+            <span class="sc-label">TOTAL MEMBERS</span>
+          </div>
+          <div class="sc-glow"></div>
+        </div>
+        <div class="summary-card" data-color="violet">
+          <div class="sc-icon">⬡</div>
+          <div class="sc-data">
+            <span class="sc-num" id="sc-depts">--</span>
+            <span class="sc-label">DEPARTMENTS</span>
+          </div>
+          <div class="sc-glow"></div>
+        </div>
+        <div class="summary-card" data-color="green">
+          <div class="sc-icon">◆</div>
+          <div class="sc-data">
+            <span class="sc-num" id="sc-events">--</span>
+            <span class="sc-label">EVENTS ATTENDED</span>
+          </div>
+          <div class="sc-glow"></div>
+        </div>
+        <div class="summary-card" data-color="gold">
+          <div class="sc-icon">★</div>
+          <div class="sc-data">
+            <span class="sc-num" id="sc-won">--</span>
+            <span class="sc-label">EVENTS WON</span>
+          </div>
+          <div class="sc-glow"></div>
+        </div>
+        <div class="summary-card" data-color="red">
+          <div class="sc-icon">⚠</div>
+          <div class="sc-data">
+            <span class="sc-num" id="sc-arrears">--</span>
+            <span class="sc-label">WITH ARREARS</span>
+          </div>
+          <div class="sc-glow"></div>
+        </div>
+        <div class="summary-card" data-color="blue">
+          <div class="sc-icon">◎</div>
+          <div class="sc-data">
+            <span class="sc-num" id="sc-cgpa">--</span>
+            <span class="sc-label">AVG. CGPA</span>
+          </div>
+          <div class="sc-glow"></div>
+        </div>
+      </div>
+
+      <!-- Quick Charts Row -->
+      <div class="dash-charts">
+        <div class="chart-card">
+          <h4 class="chart-title">DEPARTMENT DISTRIBUTION</h4>
+          <canvas id="deptChart"></canvas>
+        </div>
+        <div class="chart-card">
+          <h4 class="chart-title">ROLE DISTRIBUTION</h4>
+          <canvas id="roleChart"></canvas>
+        </div>
+        <div class="chart-card wide">
+          <h4 class="chart-title">TOP PERFORMERS — CGPA</h4>
+          <canvas id="cgpaChart"></canvas>
+        </div>
+      </div>
+
+      <!-- Recent Activity -->
+      <div class="recent-section">
+        <h4 class="section-sub-title">RECENT ACTIVITY</h4>
+        <div id="recentList" class="recent-list">
+          <p class="empty-state">Upload an Excel file to begin...</p>
+        </div>
+      </div>
+    </section>
+
+    <!-- ── SECTION: MEMBERS ── -->
+    <section class="section" id="sec-members">
+      <div class="section-header flex-row">
+        <div>
+          <h2 class="section-title">TEAM ROSTER</h2>
+          <p class="section-sub">All operators — search, filter, inspect</p>
+        </div>
+        <div class="view-toggle">
+          <button class="vt-btn active" id="viewCard" title="Card View">⊞</button>
+          <button class="vt-btn" id="viewTable" title="Table View">☰</button>
+        </div>
+      </div>
+
+      <!-- Filters -->
+      <div class="filter-bar">
+        <div class="search-wrap">
+          <span class="search-icon">⌕</span>
+          <input type="text" id="searchInput" placeholder="Search name, reg no, dept..." class="search-input">
+        </div>
+        <select id="filterDept" class="filter-select"><option value="">All Departments</option></select>
+        <select id="filterRole" class="filter-select"><option value="">All Roles</option></select>
+        <select id="sortBy" class="filter-select">
+          <option value="">Sort By...</option>
+          <option value="cgpa">CGPA ↓</option>
+          <option value="rewardPts">Reward Points ↓</option>
+          <option value="activityPts">Activity Points ↓</option>
+          <option value="eventsAttended">Events Attended ↓</option>
+          <option value="name">Name A–Z</option>
+        </select>
+        <button class="btn-ghost-sm" id="clearFilters">CLEAR</button>
+      </div>
+
+      <!-- Member Count -->
+      <p class="filter-count" id="filterCount">Showing all members</p>
+
+      <!-- Card Grid View -->
+      <div class="members-grid" id="membersGrid"></div>
+
+      <!-- Table View -->
+      <div class="table-wrap hidden" id="membersTable">
+        <table class="data-table">
+          <thead id="tableHead"></thead>
+          <tbody id="tableBody"></tbody>
+        </table>
+      </div>
+    </section>
+
+    <!-- ── SECTION: ANALYTICS ── -->
+    <section class="section" id="sec-analytics">
+      <div class="section-header">
+        <h2 class="section-title">ANALYTICS</h2>
+        <p class="section-sub">Data-driven intelligence</p>
+      </div>
+      <div class="analytics-grid">
+        <div class="chart-card tall">
+          <h4 class="chart-title">SKILL FREQUENCY</h4>
+          <canvas id="skillChart"></canvas>
+        </div>
+        <div class="chart-card tall">
+          <h4 class="chart-title">PS COMPLETION STATUS</h4>
+          <canvas id="psChart"></canvas>
+        </div>
+        <div class="chart-card tall">
+          <h4 class="chart-title">TASK COMPLETION</h4>
+          <canvas id="taskChart"></canvas>
+        </div>
+        <div class="chart-card tall">
+          <h4 class="chart-title">EVENT PARTICIPATION TREND</h4>
+          <canvas id="eventTrendChart"></canvas>
+        </div>
+        <div class="chart-card wide tall">
+          <h4 class="chart-title">ACTIVITY vs REWARD POINTS</h4>
+          <canvas id="pointsChart"></canvas>
+        </div>
+      </div>
+    </section>
+
+    <!-- ── SECTION: EVENTS ── -->
+    <section class="section" id="sec-events">
+      <div class="section-header">
+        <h2 class="section-title">EVENT LOG</h2>
+        <p class="section-sub">All competitions and participation records</p>
+      </div>
+      <div class="events-grid" id="eventsGrid">
+        <p class="empty-state">No event data loaded yet.</p>
+      </div>
+    </section>
+
+    <!-- ── SECTION: CAPTAIN PANEL ── -->
+    <section class="section" id="sec-captain">
+      <div class="section-header">
+        <h2 class="section-title">CAPTAIN CONTROL PANEL</h2>
+        <p class="section-sub">Manage venue, tasks & team directives</p>
+      </div>
+
+      <!-- Venue Control -->
+      <div class="captain-card">
+        <h4 class="cc-title">◎ VENUE CONTROL</h4>
+        <!-- Captain view: editable -->
+        <div class="venue-form" id="venueEditForm">
+          <input type="text" id="venueInput" class="captain-input" placeholder="Enter team venue / location...">
+          <button class="btn-neon" id="saveVenue">UPDATE VENUE</button>
+        </div>
+        <!-- Member view: read-only (shown when not captain) -->
+        <div id="venueReadOnly" class="venue-readonly hidden">
+          <div class="venue-ro-display">
+            <span class="venue-ro-icon">◎</span>
+            <span id="venueReadOnlyText">Not Set</span>
+          </div>
+          <p class="venue-ro-note">⚑ Only the Captain can update the venue.</p>
+        </div>
+      </div>
+
+      <!-- Bulk Task Assignment -->
+      <div class="captain-card">
+        <h4 class="cc-title">◆ TASK MANAGEMENT</h4>
+        <div class="task-controls">
+          <div class="task-form-row">
+            <input type="text" id="bulkTaskTitle" class="captain-input" placeholder="Task title...">
+            <select id="bulkPriority" class="captain-select">
+              <option value="medium">Medium Priority</option>
+              <option value="high">High Priority</option>
+              <option value="low">Low Priority</option>
+            </select>
+            <input type="date" id="bulkDueDate" class="captain-input">
+            <button class="btn-neon" id="assignBulkTask">ASSIGN TO ALL</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- Task Overview -->
+      <div class="captain-card">
+        <h4 class="cc-title">▣ TASK OVERVIEW</h4>
+        <div class="task-overview-bar">
+          <div class="tob-item" data-filter="all" id="tobAll">
+            <span class="tob-num" id="tobAllNum">0</span>
+            <span class="tob-lbl">ALL</span>
+          </div>
+          <div class="tob-item" data-filter="pending" id="tobPending">
+            <span class="tob-num" id="tobPendNum">0</span>
+            <span class="tob-lbl">PENDING</span>
+          </div>
+          <div class="tob-item" data-filter="completed" id="tobCompleted">
+            <span class="tob-num" id="tobCompNum">0</span>
+            <span class="tob-lbl">COMPLETED</span>
+          </div>
+          <div class="tob-item" data-filter="high" id="tobHigh">
+            <span class="tob-num" id="tobHighNum">0</span>
+            <span class="tob-lbl">HIGH PRIORITY</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- Per-member Task Table -->
+      <div class="captain-card">
+        <h4 class="cc-title">◈ MEMBER TASK ASSIGNMENTS</h4>
+        <div class="task-filter-row">
+          <input type="text" id="taskSearchInput" class="search-input sm" placeholder="Search member...">
+          <select id="taskStatusFilter" class="filter-select sm">
+            <option value="">All Status</option>
+            <option value="pending">Pending</option>
+            <option value="completed">Completed</option>
+            <option value="in-progress">In Progress</option>
+          </select>
+          <button class="btn-ghost-sm" id="exportTasks">⬇ EXPORT JSON</button>
+          <button class="btn-ghost-sm danger" id="resetTasks">↺ RESET ALL</button>
+        </div>
+        <div class="table-wrap">
+          <table class="data-table">
+            <thead>
+              <tr>
+                <th>NAME</th>
+                <th>REG. NO.</th>
+                <th>TASK</th>
+                <th>PRIORITY</th>
+                <th>DUE DATE</th>
+                <th>STATUS</th>
+                <th>REMARKS</th>
+                <th>ACTION</th>
+              </tr>
+            </thead>
+            <tbody id="taskTableBody"></tbody>
+          </table>
+        </div>
+      </div>
+    </section>
+
+    <!-- ── SECTION: ATTENDANCE ── -->
+    <section class="section" id="sec-attendance">
+      <div class="section-header">
+        <h2 class="section-title">MISSED ATTENDANCE</h2>
+        <p class="section-sub">Track absent sessions</p>
+      </div>
+      <div class="table-wrap">
+        <table class="data-table" id="attendanceTable">
+          <thead>
+            <tr>
+              <th>DATE</th><th>REG. NO.</th><th>NAME</th><th>MAIL ID</th><th>MISSED HOURS</th>
+            </tr>
+          </thead>
+          <tbody id="attendanceBody">
+            <tr><td colspan="5" class="empty-td">No attendance data loaded.</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+  </div><!-- end main-content -->
+</div><!-- end mainApp -->
+
+<!-- ══════════════ MEMBER PROFILE MODAL ══════════════ -->
+<div id="memberModal" class="modal-overlay hidden">
+  <div class="modal-box member-modal">
+    <button class="modal-close" id="closeModal">✕</button>
+    <div class="mm-header">
+      <div class="mm-avatar" id="mmAvatar">--</div>
+      <div class="mm-identity">
+        <h2 id="mmName">Member Name</h2>
+        <p id="mmReg">REG: --</p>
+        <div id="mmRoleBadge" class="role-badge"></div>
+      </div>
+    </div>
+    <div class="mm-tabs">
+      <button class="mm-tab active" data-tab="profile">PROFILE</button>
+      <button class="mm-tab" data-tab="skills">SKILLS</button>
+      <button class="mm-tab" data-tab="ps">PS STATUS</button>
+      <button class="mm-tab" data-tab="events">EVENTS</button>
+      <button class="mm-tab captain-only hidden" data-tab="tasks">TASK</button>
+    </div>
+    <div class="mm-body">
+
+      <!-- Profile Tab -->
+      <div class="mm-panel active" id="tab-profile">
+        <div class="info-grid" id="profileInfo"></div>
+      </div>
+
+      <!-- Skills Tab -->
+      <div class="mm-panel" id="tab-skills">
+        <div class="skills-display" id="skillsDisplay"></div>
+      </div>
+
+      <!-- PS Tab -->
+      <div class="mm-panel" id="tab-ps">
+        <div id="psDisplay"></div>
+      </div>
+
+      <!-- Events Tab -->
+      <div class="mm-panel" id="tab-events">
+        <div id="eventsDisplay"></div>
+      </div>
+
+      <!-- Tasks Tab (Captain) -->
+      <div class="mm-panel captain-only" id="tab-tasks">
+        <div class="task-edit-form">
+          <label class="form-label">TASK TITLE</label>
+          <input type="text" id="mmTaskTitle" class="captain-input" placeholder="Assign a task...">
+          <label class="form-label">PRIORITY</label>
+          <select id="mmPriority" class="captain-select">
+            <option value="medium">Medium</option>
+            <option value="high">High</option>
+            <option value="low">Low</option>
+          </select>
+          <label class="form-label">DUE DATE</label>
+          <input type="date" id="mmDueDate" class="captain-input">
+          <label class="form-label">STATUS</label>
+          <select id="mmStatus" class="captain-select">
+            <option value="pending">Pending</option>
+            <option value="in-progress">In Progress</option>
+            <option value="completed">Completed</option>
+          </select>
+          <label class="form-label">REMARKS</label>
+          <textarea id="mmRemarks" class="captain-input" rows="3" placeholder="Add notes..."></textarea>
+          <button class="btn-neon" id="saveTask">SAVE TASK</button>
+        </div>
+      </div>
+
+    </div>
+  </div>
+</div>
+
+<!-- ══════════════ TOAST ══════════════ -->
+<div id="toastContainer" class="toast-container"></div>
+
+<script src="script.js"></script>
+</body>
+</html>
