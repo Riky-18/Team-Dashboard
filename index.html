@@ -406,13 +406,13 @@
         <h4 class="cc-title">WEEKLY ENTRY</h4>
         <div class="task-form-row">
           <input type="week" id="skillWeekInput" class="captain-input">
-          <select id="skillResultInput" class="captain-select">
-            <option value="passed">Passed</option>
-            <option value="failed">Failed</option>
-          </select>
         </div>
         <div class="task-form-row" style="margin-top:12px">
           <input type="text" id="skillSlotNameInput" class="captain-input" placeholder="Enter PS slot name">
+          <select id="skillSlotResultInput" class="captain-select">
+            <option value="passed">Passed</option>
+            <option value="failed">Failed</option>
+          </select>
           <button class="btn-ghost-sm" id="addSkillSlot">ADD SLOT</button>
           <div class="filter-count" id="skillSlotCount" style="margin-bottom:0">0 slots added</div>
         </div>
@@ -430,10 +430,10 @@
         <div class="table-wrap">
           <table class="data-table">
             <thead>
-              <tr><th>WEEK</th><th>PS SLOTS</th><th>RESULT</th><th>NOTES</th></tr>
+              <tr><th>WEEK</th><th>PS SLOTS</th><th>NOTES</th></tr>
             </thead>
             <tbody id="skillProgressBody">
-              <tr><td colspan="4" class="empty-td">No weekly entries yet.</td></tr>
+              <tr><td colspan="3" class="empty-td">No weekly entries yet.</td></tr>
             </tbody>
           </table>
         </div>
@@ -444,10 +444,10 @@
         <div class="table-wrap">
           <table class="data-table">
             <thead>
-              <tr><th>NAME</th><th>REG. NO.</th><th>WEEK</th><th>PS SLOTS</th><th>RESULT</th><th>NOTES</th></tr>
+              <tr><th>NAME</th><th>REG. NO.</th><th>WEEK</th><th>PS SLOTS</th><th>NOTES</th></tr>
             </thead>
             <tbody id="skillProgressCaptainBody">
-              <tr><td colspan="6" class="empty-td">No team skill entries yet.</td></tr>
+              <tr><td colspan="5" class="empty-td">No team skill entries yet.</td></tr>
             </tbody>
           </table>
         </div>

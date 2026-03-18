@@ -775,6 +775,10 @@ function getCurrentWeekValue() {
 }
 
 function formatSkillSlots(entry) {
+  const slots = Array.isArray(entry.slots) ? entry.slots.filter(slot => slot && slot.name) : [];
+  if (slots.length) {
+    return slots.map(slot => `${slot.name} [${(slot.result || 'failed').toUpperCase()}]`).join(', ');
+  }
   const slotNames = Array.isArray(entry.slotNames) ? entry.slotNames.filter(Boolean) : [];
   if (slotNames.length) return slotNames.join(', ');
   const count = entry.slotsBooked ?? 0;
@@ -790,7 +794,7 @@ function renderSkillSlotDraft() {
   listEl.innerHTML = S.skillSlotDraft.length
     ? S.skillSlotDraft.map((slot, index) => `
         <span class="skill-chip skill-primary">
-          ${slot}
+          ${slot.name} [${(slot.result || 'failed').toUpperCase()}]
           <button class="btn-xs" type="button" onclick="removeSkillSlotName(${index})">X</button>
         </span>`).join('')
     : '<span class="empty-state" style="padding:0">No PS slots added for this week.</span>';
@@ -802,14 +806,18 @@ function loadSkillWeekDraft() {
   if (!regNo || !week) return;
 
   const existing = getSkillEntries(regNo).find(entry => entry.week === week);
-  S.skillSlotDraft = existing?.slotNames ? [...existing.slotNames] : [];
-  document.getElementById('skillResultInput').value = existing?.result || 'passed';
+  S.skillSlotDraft = existing?.slots
+    ? existing.slots.map(slot => ({ name: slot.name, result: slot.result || 'failed' }))
+    : existing?.slotNames
+      ? existing.slotNames.map(name => ({ name, result: existing?.result || 'passed' }))
+      : [];
   document.getElementById('skillNotesInput').value = existing?.notes || '';
   renderSkillSlotDraft();
 }
 
 function addSkillSlotName() {
   const input = document.getElementById('skillSlotNameInput');
+  const resultInput = document.getElementById('skillSlotResultInput');
   if (!input) return;
   const slotName = input.value.trim();
   if (!slotName) {
@@ -817,7 +825,10 @@ function addSkillSlotName() {
     return;
   }
 
-  S.skillSlotDraft.push(slotName);
+  S.skillSlotDraft.push({
+    name: slotName,
+    result: resultInput?.value || 'passed',
+  });
   input.value = '';
   renderSkillSlotDraft();
 }
@@ -843,10 +854,9 @@ function renderSkillProgressSection() {
     ? entries.map(entry => `<tr>
         <td>${entry.week || '-'}</td>
         <td>${formatSkillSlots(entry)}</td>
-        <td><span class="status-${entry.result === 'passed' ? 'completed' : 'pending'}">${(entry.result || 'failed').toUpperCase()}</span></td>
         <td>${entry.notes || '-'}</td>
       </tr>`).join('')
-    : '<tr><td colspan="4" class="empty-td">No weekly entries yet.</td></tr>';
+    : '<tr><td colspan="3" class="empty-td">No weekly entries yet.</td></tr>';
 
   const allEntries = S.members.flatMap(member =>
     getSkillEntries(member.regNo).map(entry => ({ member, entry }))
@@ -858,10 +868,9 @@ function renderSkillProgressSection() {
         <td style="font-family:var(--font-mono);color:var(--cyan)">${member.regNo}</td>
         <td>${entry.week || '-'}</td>
         <td>${formatSkillSlots(entry)}</td>
-        <td><span class="status-${entry.result === 'passed' ? 'completed' : 'pending'}">${(entry.result || 'failed').toUpperCase()}</span></td>
         <td>${entry.notes || '-'}</td>
       </tr>`).join('')
-    : '<tr><td colspan="6" class="empty-td">No team skill entries yet.</td></tr>';
+    : '<tr><td colspan="5" class="empty-td">No team skill entries yet.</td></tr>';
 }
 
 async function saveSkillProgress() {
@@ -872,7 +881,6 @@ async function saveSkillProgress() {
   }
 
   const week = document.getElementById('skillWeekInput').value;
-  const result = document.getElementById('skillResultInput').value;
   const notes = document.getElementById('skillNotesInput').value.trim();
 
   if (!week) {
@@ -887,9 +895,9 @@ async function saveSkillProgress() {
   const current = getSkillEntries(regNo).filter(entry => entry.week !== week);
   current.push({
     week,
-    slotNames: [...S.skillSlotDraft],
+    slots: S.skillSlotDraft.map(slot => ({ name: slot.name, result: slot.result })),
+    slotNames: S.skillSlotDraft.map(slot => slot.name),
     slotsBooked: S.skillSlotDraft.length,
-    result,
     notes,
     updatedAt: Date.now()
   });
