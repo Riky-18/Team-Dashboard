@@ -1,29 +1,65 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-  <meta charset="UTF-8" />
+  <meta charset="UTF-8"/>
   <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
   <title>NEXUS — Team Command Center</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@400;600;700;900&family=Share+Tech+Mono&family=Rajdhani:wght@300;400;500;600;700&display=swap" rel="stylesheet">
-  <!-- SheetJS -->
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
-  <!-- Chart.js -->
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
-  <!-- Google Identity Services -->
-  <script src="https://accounts.google.com/gsi/client" async defer></script>
-  <link rel="stylesheet" href="style.css" />
+  <link rel="stylesheet" href="style.css"/>
+
+  <!-- ═══ FIREBASE MODULE ════════════════════════════════════════════════ -->
+  <script type="module">
+    import { initializeApp }      from "https://www.gstatic.com/firebasejs/12.10.0/firebase-app.js";
+    import { getAnalytics }       from "https://www.gstatic.com/firebasejs/12.10.0/firebase-analytics.js";
+    import { getAuth,
+             GoogleAuthProvider,
+             signInWithPopup,
+             signOut as fbSignOut,
+             onAuthStateChanged } from "https://www.gstatic.com/firebasejs/12.10.0/firebase-auth.js";
+
+    const cfg = {
+      apiKey:            "AIzaSyCCzF9-KnQpw-VxOrjXzsmyg-PMMt5tiTs",
+      authDomain:        "team-dashboard-2e41b.firebaseapp.com",
+      projectId:         "team-dashboard-2e41b",
+      storageBucket:     "team-dashboard-2e41b.firebasestorage.app",
+      messagingSenderId: "410001904863",
+      appId:             "1:410001904863:web:53a9bd82bec4495b60856a",
+      measurementId:     "G-S4SVHEDJ9K"
+    };
+    const app      = initializeApp(cfg);
+    getAnalytics(app);
+    const auth     = getAuth(app);
+    const provider = new GoogleAuthProvider();
+    provider.setCustomParameters({ prompt:'select_account' });
+
+    /* bridges that script.js (non-module) calls */
+    window._fbSignOut = () => fbSignOut(auth);
+    window._firebaseGoogleSignIn = async () => {
+      try { await signInWithPopup(auth, provider); }
+      catch(e) {
+        window._onFirebaseError(
+          e.code === 'auth/popup-closed-by-user'
+            ? 'Sign-in cancelled — please try again.'
+            : 'Google sign-in failed: ' + (e.message || e.code)
+        );
+      }
+    };
+    onAuthStateChanged(auth, user =>
+      user ? window._onFirebaseUser(user) : window._onFirebaseSignOut()
+    );
+  </script>
+  <!-- ══════════════════════════════════════════════════════════════════ -->
 </head>
 <body>
 
 <!-- ══════════════ LOADER ══════════════ -->
 <div id="loader" class="loader-overlay">
   <div class="loader-box">
-    <div class="loader-ring"></div>
-    <div class="loader-ring r2"></div>
-    <div class="loader-ring r3"></div>
+    <div class="loader-ring"></div><div class="loader-ring r2"></div><div class="loader-ring r3"></div>
     <p class="loader-text">INITIALIZING NEXUS</p>
-    <p class="loader-sub" id="loaderSub">LOADING SYSTEMS...</p>
+    <p class="loader-sub" id="loaderSub">CONNECTING TO FIREBASE…</p>
   </div>
 </div>
 
@@ -37,68 +73,41 @@
     </div>
     <p class="role-tagline">TEAM COMMAND CENTER</p>
 
-    <!-- Login Card -->
     <div class="login-card" id="loginCard">
       <div class="login-status-row">
         <span class="login-dot"></span>
         <span class="login-status-text">AWAITING AUTHENTICATION</span>
       </div>
-      <p class="login-desc">Sign in with your team Google account to continue. Access level is determined automatically.</p>
+      <p class="login-desc">
+        Sign in with your team Google account.<br>
+        Your access level is assigned automatically based on your role.
+      </p>
 
-      <!-- Google Sign-In Button (rendered by GSI) -->
-      <div id="googleSignInBtn" class="google-btn-wrap"></div>
+      <button class="firebase-google-btn" id="firebaseGoogleBtn">
+        <svg class="google-icon" viewBox="0 0 24 24">
+          <path d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z" fill="#4285F4"/>
+          <path d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z" fill="#34A853"/>
+          <path d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l3.66-2.84z" fill="#FBBC05"/>
+          <path d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z" fill="#EA4335"/>
+        </svg>
+        <span class="google-btn-text">Sign in with Google</span>
+        <span class="google-btn-loader hidden" id="googleBtnLoader"><span class="mini-ring"></span></span>
+      </button>
 
-      <!-- Dev/Demo bypass -->
-      <div class="login-divider"><span>OR</span></div>
-      <div class="demo-logins">
-        <button class="demo-btn" id="demoMemberBtn">
-          <span class="demo-icon">◈</span>
-          <div>
-            <div class="demo-label">DEMO — MEMBER</div>
-            <div class="demo-sub">arjun@college.edu</div>
-          </div>
-        </button>
-        <button class="demo-btn captain" id="demoCaptainBtn">
-          <span class="demo-icon">◉</span>
-          <div>
-            <div class="demo-label">DEMO — CAPTAIN</div>
-            <div class="demo-sub">arjun@college.edu (Captain)</div>
-          </div>
-        </button>
-      </div>
-
-      <p class="login-note">⚑ Google login matches your email to the team roster. Captains get venue edit access.</p>
+      <p class="login-note">
+        ⚑ Captains get full access — venue editing & task management.<br>
+        Members get read-only view of all team data.
+      </p>
     </div>
 
-    <!-- Login Error State -->
     <div id="loginError" class="login-error-box hidden">
       <span class="login-err-icon">⚠</span>
       <div>
-        <p class="login-err-title">ACCESS DENIED</p>
-        <p class="login-err-sub" id="loginErrMsg">Email not found in team roster.</p>
+        <p class="login-err-title">SIGN-IN FAILED</p>
+        <p class="login-err-sub" id="loginErrMsg">Something went wrong.</p>
       </div>
       <button class="btn-ghost-sm" id="loginRetry">RETRY</button>
     </div>
-  </div>
-</div>
-
-<!-- ══════════════ CAPTAIN PIN MODAL ══════════════ -->
-<div id="pinModal" class="modal-overlay hidden">
-  <div class="modal-box pin-modal">
-    <h3 class="modal-title">CAPTAIN AUTH</h3>
-    <p class="modal-sub">Enter captain PIN to access control panel</p>
-    <div class="pin-inputs">
-      <input type="password" class="pin-input" maxlength="1" data-idx="0">
-      <input type="password" class="pin-input" maxlength="1" data-idx="1">
-      <input type="password" class="pin-input" maxlength="1" data-idx="2">
-      <input type="password" class="pin-input" maxlength="1" data-idx="3">
-    </div>
-    <p class="pin-hint">Default PIN: 1234</p>
-    <div class="modal-actions">
-      <button class="btn-ghost" id="pinCancel">CANCEL</button>
-      <button class="btn-neon" id="pinSubmit">AUTHENTICATE</button>
-    </div>
-    <p id="pinError" class="pin-error hidden">INVALID PIN — ACCESS DENIED</p>
   </div>
 </div>
 
@@ -108,8 +117,7 @@
   <!-- SIDEBAR -->
   <aside class="sidebar" id="sidebar">
     <div class="sidebar-logo">
-      <span class="sb-logo-text">NEXUS</span>
-      <span class="sb-logo-tag">v2.0</span>
+      <span class="sb-logo-text">NEXUS</span><span class="sb-logo-tag">v3.0</span>
     </div>
     <div class="sidebar-mode" id="sbModeTag">● MEMBER MODE</div>
     <nav class="sidebar-nav">
@@ -134,26 +142,21 @@
       </a>
     </nav>
     <div class="sidebar-bottom">
-      <!-- Logged-in user display -->
-      <div class="sidebar-user" id="sidebarUser">
+      <div class="sidebar-user">
         <div class="sb-user-avatar" id="sbUserAvatar">?</div>
         <div class="sb-user-info">
-          <div class="sb-user-name" id="sbUserName">Not logged in</div>
+          <div class="sb-user-name"  id="sbUserName">—</div>
           <div class="sb-user-email" id="sbUserEmail">—</div>
         </div>
       </div>
-      <label class="upload-btn" for="excelUpload">
-        <span class="upload-icon">⊕</span> UPLOAD EXCEL
-        <input type="file" id="excelUpload" accept=".xlsx,.xls" style="display:none">
-      </label>
-      <button class="btn-outline-sm" id="switchRole">⏻ SIGN OUT</button>
+      <button class="btn-outline-sm" id="signOutBtn">⏻ SIGN OUT</button>
     </div>
   </aside>
 
   <!-- MAIN CONTENT -->
   <div class="main-content">
 
-    <!-- TOP NAVBAR -->
+    <!-- TOPBAR -->
     <header class="topbar">
       <button class="hamburger" id="hamburger">☰</button>
       <div class="topbar-title">
@@ -162,128 +165,91 @@
         <span class="topbar-team">TEAM NEXUS</span>
       </div>
       <div class="topbar-right">
-        <div class="venue-display" id="venueDisplay">
+        <div class="venue-display">
           <span class="venue-icon">◎</span>
           <span id="venueText">Venue: Not Set</span>
         </div>
         <div class="mode-badge" id="modeBadge">MEMBER</div>
-        <div class="topbar-user" id="topbarUser">
+        <div class="topbar-user">
           <div class="topbar-avatar" id="topbarAvatar">?</div>
           <div class="topbar-user-info">
-            <div class="topbar-user-name" id="topbarUserName">Guest</div>
+            <div class="topbar-user-name" id="topbarUserName">—</div>
             <div class="topbar-user-role" id="topbarUserRole">—</div>
           </div>
         </div>
       </div>
     </header>
 
-    <!-- ── SECTION: DASHBOARD ── -->
+    <!-- ── DASHBOARD ── -->
     <section class="section active" id="sec-dashboard">
       <div class="section-header">
         <h2 class="section-title">COMMAND OVERVIEW</h2>
-        <p class="section-sub">Real-time team intelligence</p>
+        <p class="section-sub">Live data from Google Sheets</p>
       </div>
-
-      <!-- Summary Cards -->
-      <div class="summary-grid" id="summaryGrid">
+      <div class="summary-grid">
         <div class="summary-card" data-color="cyan">
           <div class="sc-icon">◈</div>
-          <div class="sc-data">
-            <span class="sc-num" id="sc-total">--</span>
-            <span class="sc-label">TOTAL MEMBERS</span>
-          </div>
+          <div class="sc-data"><span class="sc-num" id="sc-total">--</span><span class="sc-label">TOTAL MEMBERS</span></div>
           <div class="sc-glow"></div>
         </div>
         <div class="summary-card" data-color="violet">
           <div class="sc-icon">⬡</div>
-          <div class="sc-data">
-            <span class="sc-num" id="sc-depts">--</span>
-            <span class="sc-label">DEPARTMENTS</span>
-          </div>
+          <div class="sc-data"><span class="sc-num" id="sc-depts">--</span><span class="sc-label">DEPARTMENTS</span></div>
           <div class="sc-glow"></div>
         </div>
         <div class="summary-card" data-color="green">
           <div class="sc-icon">◆</div>
-          <div class="sc-data">
-            <span class="sc-num" id="sc-events">--</span>
-            <span class="sc-label">EVENTS ATTENDED</span>
-          </div>
+          <div class="sc-data"><span class="sc-num" id="sc-events">--</span><span class="sc-label">EVENTS ATTENDED</span></div>
           <div class="sc-glow"></div>
         </div>
         <div class="summary-card" data-color="gold">
           <div class="sc-icon">★</div>
-          <div class="sc-data">
-            <span class="sc-num" id="sc-won">--</span>
-            <span class="sc-label">EVENTS WON</span>
-          </div>
+          <div class="sc-data"><span class="sc-num" id="sc-won">--</span><span class="sc-label">EVENTS WON</span></div>
           <div class="sc-glow"></div>
         </div>
         <div class="summary-card" data-color="red">
           <div class="sc-icon">⚠</div>
-          <div class="sc-data">
-            <span class="sc-num" id="sc-arrears">--</span>
-            <span class="sc-label">WITH ARREARS</span>
-          </div>
+          <div class="sc-data"><span class="sc-num" id="sc-arrears">--</span><span class="sc-label">WITH ARREARS</span></div>
           <div class="sc-glow"></div>
         </div>
         <div class="summary-card" data-color="blue">
           <div class="sc-icon">◎</div>
-          <div class="sc-data">
-            <span class="sc-num" id="sc-cgpa">--</span>
-            <span class="sc-label">AVG. CGPA</span>
-          </div>
+          <div class="sc-data"><span class="sc-num" id="sc-cgpa">--</span><span class="sc-label">AVG. CGPA</span></div>
           <div class="sc-glow"></div>
         </div>
       </div>
-
-      <!-- Quick Charts Row -->
       <div class="dash-charts">
-        <div class="chart-card">
-          <h4 class="chart-title">DEPARTMENT DISTRIBUTION</h4>
-          <canvas id="deptChart"></canvas>
-        </div>
-        <div class="chart-card">
-          <h4 class="chart-title">ROLE DISTRIBUTION</h4>
-          <canvas id="roleChart"></canvas>
-        </div>
-        <div class="chart-card wide">
-          <h4 class="chart-title">TOP PERFORMERS — CGPA</h4>
-          <canvas id="cgpaChart"></canvas>
-        </div>
+        <div class="chart-card"><h4 class="chart-title">DEPARTMENT DISTRIBUTION</h4><canvas id="deptChart"></canvas></div>
+        <div class="chart-card"><h4 class="chart-title">ROLE DISTRIBUTION</h4><canvas id="roleChart"></canvas></div>
+        <div class="chart-card wide"><h4 class="chart-title">TOP PERFORMERS — CGPA</h4><canvas id="cgpaChart"></canvas></div>
       </div>
-
-      <!-- Recent Activity -->
       <div class="recent-section">
-        <h4 class="section-sub-title">RECENT ACTIVITY</h4>
-        <div id="recentList" class="recent-list">
-          <p class="empty-state">Upload an Excel file to begin...</p>
-        </div>
+        <h4 class="section-sub-title">ACTIVITY SNAPSHOT</h4>
+        <div id="recentList" class="recent-list"><p class="empty-state">Loading…</p></div>
       </div>
     </section>
 
-    <!-- ── SECTION: MEMBERS ── -->
+    <!-- ── MEMBERS ── -->
     <section class="section" id="sec-members">
       <div class="section-header flex-row">
         <div>
           <h2 class="section-title">TEAM ROSTER</h2>
-          <p class="section-sub">All operators — search, filter, inspect</p>
+          <p class="section-sub">Search, filter & inspect any operator</p>
         </div>
         <div class="view-toggle">
           <button class="vt-btn active" id="viewCard" title="Card View">⊞</button>
           <button class="vt-btn" id="viewTable" title="Table View">☰</button>
         </div>
       </div>
-
-      <!-- Filters -->
       <div class="filter-bar">
         <div class="search-wrap">
           <span class="search-icon">⌕</span>
-          <input type="text" id="searchInput" placeholder="Search name, reg no, dept..." class="search-input">
+          <input type="text" id="searchInput" class="search-input" placeholder="Search name, reg no, dept…">
         </div>
         <select id="filterDept" class="filter-select"><option value="">All Departments</option></select>
         <select id="filterRole" class="filter-select"><option value="">All Roles</option></select>
         <select id="sortBy" class="filter-select">
-          <option value="">Sort By...</option>
+          <option value="">Sort By…</option>
           <option value="cgpa">CGPA ↓</option>
           <option value="rewardPts">Reward Points ↓</option>
           <option value="activityPts">Activity Points ↓</option>
@@ -292,14 +258,8 @@
         </select>
         <button class="btn-ghost-sm" id="clearFilters">CLEAR</button>
       </div>
-
-      <!-- Member Count -->
-      <p class="filter-count" id="filterCount">Showing all members</p>
-
-      <!-- Card Grid View -->
+      <p class="filter-count" id="filterCount"></p>
       <div class="members-grid" id="membersGrid"></div>
-
-      <!-- Table View -->
       <div class="table-wrap hidden" id="membersTable">
         <table class="data-table">
           <thead id="tableHead"></thead>
@@ -308,122 +268,85 @@
       </div>
     </section>
 
-    <!-- ── SECTION: ANALYTICS ── -->
+    <!-- ── ANALYTICS ── -->
     <section class="section" id="sec-analytics">
       <div class="section-header">
         <h2 class="section-title">ANALYTICS</h2>
         <p class="section-sub">Data-driven intelligence</p>
       </div>
       <div class="analytics-grid">
-        <div class="chart-card tall">
-          <h4 class="chart-title">SKILL FREQUENCY</h4>
-          <canvas id="skillChart"></canvas>
-        </div>
-        <div class="chart-card tall">
-          <h4 class="chart-title">PS COMPLETION STATUS</h4>
-          <canvas id="psChart"></canvas>
-        </div>
-        <div class="chart-card tall">
-          <h4 class="chart-title">TASK COMPLETION</h4>
-          <canvas id="taskChart"></canvas>
-        </div>
-        <div class="chart-card tall">
-          <h4 class="chart-title">EVENT PARTICIPATION TREND</h4>
-          <canvas id="eventTrendChart"></canvas>
-        </div>
-        <div class="chart-card wide tall">
-          <h4 class="chart-title">ACTIVITY vs REWARD POINTS</h4>
-          <canvas id="pointsChart"></canvas>
-        </div>
+        <div class="chart-card tall"><h4 class="chart-title">SKILL FREQUENCY</h4><canvas id="skillChart"></canvas></div>
+        <div class="chart-card tall"><h4 class="chart-title">PS COMPLETION STATUS</h4><canvas id="psChart"></canvas></div>
+        <div class="chart-card tall"><h4 class="chart-title">TASK COMPLETION</h4><canvas id="taskChart"></canvas></div>
+        <div class="chart-card tall"><h4 class="chart-title">EVENT TREND</h4><canvas id="eventTrendChart"></canvas></div>
+        <div class="chart-card wide tall"><h4 class="chart-title">ACTIVITY vs REWARD POINTS</h4><canvas id="pointsChart"></canvas></div>
       </div>
     </section>
 
-    <!-- ── SECTION: EVENTS ── -->
+    <!-- ── EVENTS ── -->
     <section class="section" id="sec-events">
       <div class="section-header">
         <h2 class="section-title">EVENT LOG</h2>
-        <p class="section-sub">All competitions and participation records</p>
+        <p class="section-sub">Competitions & participation records</p>
       </div>
-      <div class="events-grid" id="eventsGrid">
-        <p class="empty-state">No event data loaded yet.</p>
-      </div>
+      <div class="events-grid" id="eventsGrid"><p class="empty-state">Loading events…</p></div>
     </section>
 
-    <!-- ── SECTION: CAPTAIN PANEL ── -->
+    <!-- ── CAPTAIN PANEL ── -->
     <section class="section" id="sec-captain">
       <div class="section-header">
         <h2 class="section-title">CAPTAIN CONTROL PANEL</h2>
-        <p class="section-sub">Manage venue, tasks & team directives</p>
+        <p class="section-sub">Venue management & task assignments — Captain access only</p>
       </div>
 
-      <!-- Venue Control -->
+      <!-- Venue -->
       <div class="captain-card">
         <h4 class="cc-title">◎ VENUE CONTROL</h4>
-        <!-- Captain view: editable -->
         <div class="venue-form" id="venueEditForm">
-          <input type="text" id="venueInput" class="captain-input" placeholder="Enter team venue / location...">
+          <input type="text" id="venueInput" class="captain-input" placeholder="Enter team venue / location…">
           <button class="btn-neon" id="saveVenue">UPDATE VENUE</button>
         </div>
-        <!-- Member view: read-only (shown when not captain) -->
-        <div id="venueReadOnly" class="venue-readonly hidden">
-          <div class="venue-ro-display">
-            <span class="venue-ro-icon">◎</span>
-            <span id="venueReadOnlyText">Not Set</span>
-          </div>
-          <p class="venue-ro-note">⚑ Only the Captain can update the venue.</p>
-        </div>
       </div>
 
-      <!-- Bulk Task Assignment -->
+      <!-- Bulk task -->
       <div class="captain-card">
-        <h4 class="cc-title">◆ TASK MANAGEMENT</h4>
-        <div class="task-controls">
-          <div class="task-form-row">
-            <input type="text" id="bulkTaskTitle" class="captain-input" placeholder="Task title...">
-            <select id="bulkPriority" class="captain-select">
-              <option value="medium">Medium Priority</option>
-              <option value="high">High Priority</option>
-              <option value="low">Low Priority</option>
-            </select>
-            <input type="date" id="bulkDueDate" class="captain-input">
-            <button class="btn-neon" id="assignBulkTask">ASSIGN TO ALL</button>
-          </div>
+        <h4 class="cc-title">◆ BULK TASK ASSIGNMENT</h4>
+        <div class="task-form-row">
+          <input type="text" id="bulkTaskTitle" class="captain-input" placeholder="Task title…">
+          <select id="bulkPriority" class="captain-select">
+            <option value="medium">Medium Priority</option>
+            <option value="high">High Priority</option>
+            <option value="low">Low Priority</option>
+          </select>
+          <input type="date" id="bulkDueDate" class="captain-input">
+          <button class="btn-neon" id="assignBulkTask">ASSIGN TO ALL</button>
         </div>
       </div>
 
-      <!-- Task Overview -->
+      <!-- Overview -->
       <div class="captain-card">
         <h4 class="cc-title">▣ TASK OVERVIEW</h4>
         <div class="task-overview-bar">
-          <div class="tob-item" data-filter="all" id="tobAll">
-            <span class="tob-num" id="tobAllNum">0</span>
-            <span class="tob-lbl">ALL</span>
-          </div>
-          <div class="tob-item" data-filter="pending" id="tobPending">
-            <span class="tob-num" id="tobPendNum">0</span>
-            <span class="tob-lbl">PENDING</span>
-          </div>
-          <div class="tob-item" data-filter="completed" id="tobCompleted">
-            <span class="tob-num" id="tobCompNum">0</span>
-            <span class="tob-lbl">COMPLETED</span>
-          </div>
-          <div class="tob-item" data-filter="high" id="tobHigh">
-            <span class="tob-num" id="tobHighNum">0</span>
-            <span class="tob-lbl">HIGH PRIORITY</span>
-          </div>
+          <div class="tob-item active" data-filter="all"><span class="tob-num" id="tobAllNum">0</span><span class="tob-lbl">ALL</span></div>
+          <div class="tob-item" data-filter="pending"><span class="tob-num" id="tobPendNum">0</span><span class="tob-lbl">PENDING</span></div>
+          <div class="tob-item" data-filter="completed"><span class="tob-num" id="tobCompNum">0</span><span class="tob-lbl">COMPLETED</span></div>
+          <div class="tob-item" data-filter="high"><span class="tob-num" id="tobHighNum">0</span><span class="tob-lbl">HIGH PRIORITY</span></div>
         </div>
       </div>
 
-      <!-- Per-member Task Table -->
+      <!-- Per-member task table -->
       <div class="captain-card">
         <h4 class="cc-title">◈ MEMBER TASK ASSIGNMENTS</h4>
         <div class="task-filter-row">
-          <input type="text" id="taskSearchInput" class="search-input sm" placeholder="Search member...">
+          <div class="search-wrap" style="flex:1;min-width:160px">
+            <span class="search-icon">⌕</span>
+            <input type="text" id="taskSearchInput" class="search-input" placeholder="Search member…">
+          </div>
           <select id="taskStatusFilter" class="filter-select sm">
             <option value="">All Status</option>
             <option value="pending">Pending</option>
-            <option value="completed">Completed</option>
             <option value="in-progress">In Progress</option>
+            <option value="completed">Completed</option>
           </select>
           <button class="btn-ghost-sm" id="exportTasks">⬇ EXPORT JSON</button>
           <button class="btn-ghost-sm danger" id="resetTasks">↺ RESET ALL</button>
@@ -432,14 +355,9 @@
           <table class="data-table">
             <thead>
               <tr>
-                <th>NAME</th>
-                <th>REG. NO.</th>
-                <th>TASK</th>
-                <th>PRIORITY</th>
-                <th>DUE DATE</th>
-                <th>STATUS</th>
-                <th>REMARKS</th>
-                <th>ACTION</th>
+                <th>NAME</th><th>REG. NO.</th><th>TASK</th>
+                <th>PRIORITY</th><th>DUE DATE</th><th>STATUS</th>
+                <th>REMARKS</th><th>ACTION</th>
               </tr>
             </thead>
             <tbody id="taskTableBody"></tbody>
@@ -448,38 +366,34 @@
       </div>
     </section>
 
-    <!-- ── SECTION: ATTENDANCE ── -->
+    <!-- ── ATTENDANCE ── -->
     <section class="section" id="sec-attendance">
       <div class="section-header">
         <h2 class="section-title">MISSED ATTENDANCE</h2>
-        <p class="section-sub">Track absent sessions</p>
+        <p class="section-sub">Absent session records</p>
       </div>
       <div class="table-wrap">
-        <table class="data-table" id="attendanceTable">
+        <table class="data-table">
           <thead>
-            <tr>
-              <th>DATE</th><th>REG. NO.</th><th>NAME</th><th>MAIL ID</th><th>MISSED HOURS</th>
-            </tr>
+            <tr><th>DATE</th><th>REG. NO.</th><th>NAME</th><th>MAIL ID</th><th>MISSED HRS</th></tr>
           </thead>
-          <tbody id="attendanceBody">
-            <tr><td colspan="5" class="empty-td">No attendance data loaded.</td></tr>
-          </tbody>
+          <tbody id="attendanceBody"><tr><td colspan="5" class="empty-td">Loading…</td></tr></tbody>
         </table>
       </div>
     </section>
 
-  </div><!-- end main-content -->
-</div><!-- end mainApp -->
+  </div><!-- /main-content -->
+</div><!-- /mainApp -->
 
-<!-- ══════════════ MEMBER PROFILE MODAL ══════════════ -->
+<!-- ══════════════ MEMBER MODAL ══════════════ -->
 <div id="memberModal" class="modal-overlay hidden">
   <div class="modal-box member-modal">
     <button class="modal-close" id="closeModal">✕</button>
     <div class="mm-header">
       <div class="mm-avatar" id="mmAvatar">--</div>
       <div class="mm-identity">
-        <h2 id="mmName">Member Name</h2>
-        <p id="mmReg">REG: --</p>
+        <h2 id="mmName">—</h2>
+        <p id="mmReg">REG: —</p>
         <div id="mmRoleBadge" class="role-badge"></div>
       </div>
     </div>
@@ -491,52 +405,29 @@
       <button class="mm-tab captain-only hidden" data-tab="tasks">TASK</button>
     </div>
     <div class="mm-body">
-
-      <!-- Profile Tab -->
-      <div class="mm-panel active" id="tab-profile">
-        <div class="info-grid" id="profileInfo"></div>
-      </div>
-
-      <!-- Skills Tab -->
-      <div class="mm-panel" id="tab-skills">
-        <div class="skills-display" id="skillsDisplay"></div>
-      </div>
-
-      <!-- PS Tab -->
-      <div class="mm-panel" id="tab-ps">
-        <div id="psDisplay"></div>
-      </div>
-
-      <!-- Events Tab -->
-      <div class="mm-panel" id="tab-events">
-        <div id="eventsDisplay"></div>
-      </div>
-
-      <!-- Tasks Tab (Captain) -->
-      <div class="mm-panel captain-only" id="tab-tasks">
+      <div class="mm-panel active" id="tab-profile"><div class="info-grid" id="profileInfo"></div></div>
+      <div class="mm-panel" id="tab-skills"><div class="skills-display" id="skillsDisplay"></div></div>
+      <div class="mm-panel" id="tab-ps"><div id="psDisplay"></div></div>
+      <div class="mm-panel" id="tab-events"><div id="eventsDisplay"></div></div>
+      <div class="mm-panel" id="tab-tasks">
         <div class="task-edit-form">
           <label class="form-label">TASK TITLE</label>
-          <input type="text" id="mmTaskTitle" class="captain-input" placeholder="Assign a task...">
+          <input type="text" id="mmTaskTitle" class="captain-input" placeholder="Assign a task…">
           <label class="form-label">PRIORITY</label>
           <select id="mmPriority" class="captain-select">
-            <option value="medium">Medium</option>
-            <option value="high">High</option>
-            <option value="low">Low</option>
+            <option value="medium">Medium</option><option value="high">High</option><option value="low">Low</option>
           </select>
           <label class="form-label">DUE DATE</label>
           <input type="date" id="mmDueDate" class="captain-input">
           <label class="form-label">STATUS</label>
           <select id="mmStatus" class="captain-select">
-            <option value="pending">Pending</option>
-            <option value="in-progress">In Progress</option>
-            <option value="completed">Completed</option>
+            <option value="pending">Pending</option><option value="in-progress">In Progress</option><option value="completed">Completed</option>
           </select>
           <label class="form-label">REMARKS</label>
-          <textarea id="mmRemarks" class="captain-input" rows="3" placeholder="Add notes..."></textarea>
+          <textarea id="mmRemarks" class="captain-input" rows="3" placeholder="Add notes…"></textarea>
           <button class="btn-neon" id="saveTask">SAVE TASK</button>
         </div>
       </div>
-
     </div>
   </div>
 </div>
@@ -545,5 +436,21 @@
 <div id="toastContainer" class="toast-container"></div>
 
 <script src="script.js"></script>
+<!-- ══ HARD FAILSAFE: loader always disappears after 5s no matter what ══ -->
+<script>
+  setTimeout(function() {
+    var l = document.getElementById('loader');
+    if (l && !l.classList.contains('hidden')) {
+      l.style.opacity = '0';
+      setTimeout(function() { l.classList.add('hidden'); }, 500);
+      // Also show login screen if still hidden
+      var r = document.getElementById('roleScreen');
+      var a = document.getElementById('mainApp');
+      if (r && r.classList.contains('hidden') && a && a.classList.contains('hidden')) {
+        r.classList.remove('hidden');
+      }
+    }
+  }, 5000);
+</script>
 </body>
 </html>

@@ -74,6 +74,11 @@ body {
   background:var(--bg-void);
   display:flex; align-items:center; justify-content:center;
   transition:opacity .5s ease;
+  pointer-events:all;
+}
+.loader-overlay.hidden {
+  display:none !important;
+  pointer-events:none;
 }
 .loader-box {
   text-align:center; position:relative;

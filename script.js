@@ -50,27 +50,82 @@ const S = {
 };
 
 // ═══════════════════════════════════════════════════════════════
-// FIREBASE CALLBACKS (called from the <script type="module"> in index.html)
+// BOOT STATE — tracks whether DOM init is complete
 // ═══════════════════════════════════════════════════════════════
-window._onFirebaseUser    = u   => { resetGBtn(); loginWithEmail(u.email||'', u.displayName||'', u.photoURL||''); };
-window._onFirebaseSignOut = ()  => resetGBtn();
-window._onFirebaseError   = msg => { resetGBtn(); showLoginError(msg); };
+let _domReady    = false;   // true after DOMContentLoaded + wireListeners
+let _pendingUser = null;    // Firebase user queued before DOM was ready
 
 // ═══════════════════════════════════════════════════════════════
-// BOOT
+// FIREBASE CALLBACKS (called from <script type="module"> in index.html)
+// These may fire BEFORE DOMContentLoaded — we queue the user if so.
+// ═══════════════════════════════════════════════════════════════
+window._onFirebaseUser = function(u) {
+  if (!_domReady) {
+    // DOM not ready yet — save and handle after boot
+    _pendingUser = u;
+    return;
+  }
+  resetGBtn();
+  // Hide loader first, then enter app
+  hideLoader();
+  loginWithEmail(u.email || '', u.displayName || '', u.photoURL || '');
+};
+
+window._onFirebaseSignOut = function() {
+  if (!_domReady) return; // ignore pre-DOM callbacks
+  resetGBtn();
+  // Show login screen (loader should already be hidden by boot)
+};
+
+window._onFirebaseError = function(msg) {
+  resetGBtn();
+  hideLoader();
+  showLoginScreen();
+  showLoginError(msg);
+};
+
+// ═══════════════════════════════════════════════════════════════
+// BOOT — runs on DOMContentLoaded, guaranteed single entry point
 // ═══════════════════════════════════════════════════════════════
 document.addEventListener('DOMContentLoaded', () => {
   loadCaptainData();
   wireListeners();
+  _domReady = true;
+
+  // Always hide loader and show login after a short splash
+  // (Firebase auth state may already have resolved by now)
+  setLoader('SYSTEM READY');
   setTimeout(() => {
-    setLoader('FIREBASE CONNECTED');
-    setTimeout(() => { hideLoader(); showLoginScreen(); }, 800);
-  }, 1400);
+    hideLoader();
+
+    // If Firebase already called _onFirebaseUser before DOM was ready,
+    // handle that queued user now
+    if (_pendingUser) {
+      const u = _pendingUser;
+      _pendingUser = null;
+      loginWithEmail(u.email || '', u.displayName || '', u.photoURL || '');
+    } else {
+      // No active session — show login screen
+      showLoginScreen();
+    }
+  }, 1200); // short enough to feel snappy, long enough for Firebase to resolve
 });
 
-const setLoader    = t => { const e = document.getElementById('loaderSub'); if(e) e.textContent = t; };
-const hideLoader   = () => { const l = document.getElementById('loader'); l.style.opacity='0'; setTimeout(()=>l.classList.add('hidden'), 500); };
-const showLoginScreen = () => document.getElementById('roleScreen').classList.remove('hidden');
+const setLoader = t => {
+  const e = document.getElementById('loaderSub');
+  if (e) e.textContent = t;
+};
+
+const hideLoader = () => {
+  const l = document.getElementById('loader');
+  if (!l || l.classList.contains('hidden')) return; // already hidden
+  l.style.opacity = '0';
+  setTimeout(() => l.classList.add('hidden'), 500);
+};
+
+const showLoginScreen = () => {
+  document.getElementById('roleScreen').classList.remove('hidden');
+};
 
 function resetGBtn() {
   const b = document.getElementById('firebaseGoogleBtn');
@@ -211,14 +266,20 @@ async function loadSheetData() {
 // CORE LOGIN — the only place S.mode is assigned
 // ═══════════════════════════════════════════════════════════════
 async function loginWithEmail(email, displayName, picture) {
-  // Show loading state in card
+  // Ensure loader is fully gone first
+  hideLoader();
+
+  // Show loading state inside the login card
   const card = document.getElementById('loginCard');
-  if(card) card.innerHTML = `
+  if (card) card.innerHTML = `
     <div style="padding:48px 20px;text-align:center">
       <div class="loader-ring" style="margin:0 auto 20px;width:52px;height:52px;border-width:3px"></div>
       <p class="login-status-text" style="color:var(--cyan);margin-bottom:6px">LOADING TEAM DATA…</p>
       <p style="font-family:var(--font-mono);font-size:11px;color:var(--text-muted)">${email}</p>
     </div>`;
+
+  // Make sure login screen is visible while we load
+  showLoginScreen();
 
   try { await loadSheetData(); }
   catch(err) {
