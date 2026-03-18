@@ -11,18 +11,17 @@
 
   <!-- ═══ FIREBASE MODULE ════════════════════════════════════════════════ -->
   <script type="module">
-    import { initializeApp }        from "https://www.gstatic.com/firebasejs/12.10.0/firebase-app.js";
-    import { getAnalytics }         from "https://www.gstatic.com/firebasejs/12.10.0/firebase-analytics.js";
+    import { initializeApp }      from "https://www.gstatic.com/firebasejs/12.10.0/firebase-app.js";
+    import { getAnalytics }       from "https://www.gstatic.com/firebasejs/12.10.0/firebase-analytics.js";
     import { getAuth,
              GoogleAuthProvider,
              signInWithPopup,
              signOut as fbSignOut,
-             onAuthStateChanged }   from "https://www.gstatic.com/firebasejs/12.10.0/firebase-auth.js";
+             onAuthStateChanged } from "https://www.gstatic.com/firebasejs/12.10.0/firebase-auth.js";
     import { getFirestore,
              doc,
-             getDoc,
              setDoc,
-             onSnapshot }           from "https://www.gstatic.com/firebasejs/12.10.0/firebase-firestore.js";
+             onSnapshot }        from "https://www.gstatic.com/firebasejs/12.10.0/firebase-firestore.js";
 
     const cfg = {
       apiKey:            "AIzaSyCCzF9-KnQpw-VxOrjXzsmyg-PMMt5tiTs",
@@ -38,17 +37,19 @@
     getAnalytics(app);
     const auth = getAuth(app);
     const db   = getFirestore(app);
-    const CAPTAIN_DOC = doc(db, 'nexus', 'captainData'); // single shared document
+
+    // Single shared Firestore document for the whole team
+    const CAPTAIN_DOC = doc(db, 'nexus', 'captainData');
 
     const provider = new GoogleAuthProvider();
-    provider.setCustomParameters({ prompt:'select_account' });
+    provider.setCustomParameters({ prompt: 'select_account' });
 
     /* ── Auth bridges ── */
     window._fbSignOut = () => fbSignOut(auth);
 
     window._firebaseGoogleSignIn = async () => {
       try { await signInWithPopup(auth, provider); }
-      catch(e) {
+      catch (e) {
         window._onFirebaseError(
           e.code === 'auth/popup-closed-by-user'
             ? 'Sign-in cancelled — please try again.'
@@ -61,29 +62,50 @@
       user ? window._onFirebaseUser(user) : window._onFirebaseSignOut()
     );
 
-    /* ── Firestore bridges ── */
+    /* ── Firestore bridges ──────────────────────────────────────────────
+       WHY we stringify tasks:
+       Firestore field names cannot contain dots (e.g. "7376252IT310" is fine,
+       but any key with a dot would be misread as a nested path).
+       We store tasks as a single JSON string to avoid all dot/slash issues.
+    ─────────────────────────────────────────────────────────────────── */
 
-    // Captain calls this to write venue + tasks to Firestore
+    // Captain writes venue + tasks → Firestore (called on every captain save)
     window._fbSaveCaptainData = async (data) => {
       try {
-        await setDoc(CAPTAIN_DOC, data, { merge: true });
-      } catch(e) {
-        console.error('Firestore write error:', e);
-        window._onFirebaseError('Could not save to Firestore: ' + e.message);
+        await setDoc(CAPTAIN_DOC, {
+          venue      : data.venue  || '',
+          tasksJson  : JSON.stringify(data.tasks || {}),  // serialised to avoid dot-key issues
+          updatedAt  : Date.now(),
+        });
+        console.log('[NEXUS] Firestore save OK — venue:', data.venue);
+      } catch (e) {
+        console.error('[NEXUS] Firestore write error:', e);
+        if (typeof window._onFirebaseError === 'function')
+          window._onFirebaseError('Firestore save failed: ' + e.message);
       }
     };
 
-    // Called once after login — fetches current data then listens for live updates
+    // All clients subscribe to this — fires immediately + on every captain change
     window._fbSubscribeCaptainData = (callback) => {
-      // Immediate fetch first so UI isn't blank
-      getDoc(CAPTAIN_DOC).then(snap => {
-        callback(snap.exists() ? snap.data() : { venue: '', tasks: {} });
-      }).catch(() => callback({ venue: '', tasks: {} }));
-
-      // Then live listener — fires whenever captain changes anything
-      return onSnapshot(CAPTAIN_DOC, snap => {
-        callback(snap.exists() ? snap.data() : { venue: '', tasks: {} });
-      }, err => console.warn('Firestore snapshot error:', err));
+      const unsub = onSnapshot(
+        CAPTAIN_DOC,
+        (snap) => {
+          if (snap.exists()) {
+            const d = snap.data();
+            let tasks = {};
+            try { tasks = JSON.parse(d.tasksJson || '{}'); } catch (_) {}
+            callback({ venue: d.venue || '', tasks });
+          } else {
+            // Document doesn't exist yet — first time setup
+            callback({ venue: '', tasks: {} });
+          }
+        },
+        (err) => {
+          console.warn('[NEXUS] Firestore snapshot error:', err.code, err.message);
+          callback({ venue: '', tasks: {} });
+        }
+      );
+      return unsub; // returned so script.js can unsubscribe on sign-out
     };
   </script>
   <!-- ══════════════════════════════════════════════════════════════════ -->

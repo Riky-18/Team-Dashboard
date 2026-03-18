@@ -649,13 +649,20 @@ function subscribeCaptainData() {
 // Write to Firestore — only captain can call this (requireCaptain guards above)
 async function saveCaptainData() {
   if (typeof window._fbSaveCaptainData !== 'function') {
-    showToast('Firestore not ready — please refresh.', 'error');
-    return;
+    showToast('Firestore not ready — please refresh the page.', 'error');
+    return false;
   }
-  await window._fbSaveCaptainData({
-    venue : S.captainData.venue,
-    tasks : S.captainData.tasks,
-  });
+  try {
+    await window._fbSaveCaptainData({
+      venue : S.captainData.venue,
+      tasks : S.captainData.tasks,
+    });
+    return true;
+  } catch (e) {
+    showToast('Save failed — check Firestore rules are published.', 'error');
+    console.error('[NEXUS] saveCaptainData error:', e);
+    return false;
+  }
 }
 
 // Keep loadCaptainData as a no-op initialiser (subscription happens after login)
@@ -715,8 +722,8 @@ async function saveVenue() {
   const v = (document.getElementById('venueInput').value || '').trim();
   if (!v) { showToast('Enter a venue first', 'warning'); return; }
   S.captainData.venue = v;
-  await saveCaptainData(); // writes to Firestore → all members update via onSnapshot
-  showToast('Venue updated: ' + v + ' — visible to all members now', 'success');
+  const ok = await saveCaptainData();
+  if (ok) showToast('✓ Venue saved — all members will see it instantly', 'success');
 }
 
 // ── TASKS ─────────────────────────────────────────────────────────
