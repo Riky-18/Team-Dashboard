@@ -1,932 +1,707 @@
-/* ══════════════════════════════════════════════
-   NEXUS TEAM DASHBOARD — SCRIPT.JS
-   All logic: data, render, charts, captain controls
-══════════════════════════════════════════════ */
+/* ════════════════════════════════════════════════════════════════════
+   NEXUS TEAM DASHBOARD — script.js
+   Data  : Google Sheets (live CSV, fetched on every login)
+   Auth  : Firebase Google Sign-In
+   Access: Captain → full edit  |  Member → read-only always
+════════════════════════════════════════════════════════════════════ */
+'use strict';
 
-// ═══════════════════════════════════════════
-// GLOBAL STATE
-// ═══════════════════════════════════════════
-const State = {
-  mode: 'member',            // 'member' | 'captain'
-  members: [],               // unified member objects
-  events: [],                // event list
-  attendance: [],            // missed attendance records
-  filteredMembers: [],       // after search/filter
-  captainData: {},           // taskData + venue from localStorage
-  activeSection: 'dashboard',
-  currentViewMember: null,
-  taskFilter: 'all',
-  charts: {},
+// ═══════════════════════════════════════════════════════════════
+// ① GOOGLE SHEETS CONFIG
+//    The sheet must be shared: "Anyone with the link → Viewer"
+//    To get each tab's gid: click the tab → read ?gid=NNNN from URL
+// ═══════════════════════════════════════════════════════════════
+const SHEET_ID = '1hDjwJBT5N_YzPHZNFpZOvYJOyXD5ks8qkClM_psY9Es';
+const CSV_BASE = `https://docs.google.com/spreadsheets/d/${SHEET_ID}/export?format=csv`;
+
+// ← Update these gid values to match YOUR spreadsheet tabs
+// (Click each tab in Google Sheets → URL shows ?gid=XXXXXXXX)
+const GID = {
+  details    : '0',           // Sheet 1 — Details
+  skills     : '559279686',   // Sheet 2 — Skills
+  ps         : '1889884415',  // Sheet 3 — PS Completion
+  events     : '1647711386',  // Sheet 4 — Events
+  attendance : '952830820',   // Sheet 5 — Missed Attendance
 };
 
-const CAPTAIN_PIN = '1234';
-const LS_KEY = 'nexus_captain_data';
-
-// ═══════════════════════════════════════════
-// SAMPLE DUMMY DATA (fallback if no Excel)
-// ═══════════════════════════════════════════
-const DUMMY_DETAILS = [
-  { sno:1, name:'Arjun Sharma',     regNo:'21CS001', dept:'CSE', role:'Captain',      mobile:'9876543210', mail:'arjun@college.edu',    cgpa:9.2, arrears:0, specialLab:'AI Lab',      ssg:'Yes', eventsAttended:12, eventsWon:5, foreignLang:'German',   modeOfStudy:'Regular', currentEvents:'HackFest 2025' },
-  { sno:2, name:'Divya Nair',       regNo:'21CS002', dept:'CSE', role:'Vice Captain',  mobile:'9876543211', mail:'divya@college.edu',    cgpa:8.9, arrears:0, specialLab:'ML Lab',      ssg:'Yes', eventsAttended:10, eventsWon:3, foreignLang:'French',   modeOfStudy:'Regular', currentEvents:'CodeSprint' },
-  { sno:3, name:'Karthik Rajan',    regNo:'21IT003', dept:'IT',  role:'Strategist',    mobile:'9876543212', mail:'karthik@college.edu',  cgpa:8.5, arrears:1, specialLab:'IoT Lab',     ssg:'No',  eventsAttended:8,  eventsWon:2, foreignLang:'Japanese', modeOfStudy:'Regular', currentEvents:'RoboWars' },
-  { sno:4, name:'Priya Menon',      regNo:'21EC004', dept:'ECE', role:'Member',        mobile:'9876543213', mail:'priya@college.edu',    cgpa:7.8, arrears:0, specialLab:'VLSI Lab',    ssg:'Yes', eventsAttended:6,  eventsWon:1, foreignLang:'German',   modeOfStudy:'Regular', currentEvents:'' },
-  { sno:5, name:'Rohit Verma',      regNo:'21ME005', dept:'MECH',role:'Member',        mobile:'9876543214', mail:'rohit@college.edu',    cgpa:7.2, arrears:2, specialLab:'CAD Lab',     ssg:'No',  eventsAttended:4,  eventsWon:0, foreignLang:'French',   modeOfStudy:'Regular', currentEvents:'CAD Expo' },
-  { sno:6, name:'Sneha Krishnan',   regNo:'21CS006', dept:'CSE', role:'Mentor',        mobile:'9876543215', mail:'sneha@college.edu',    cgpa:9.5, arrears:0, specialLab:'Cloud Lab',   ssg:'Yes', eventsAttended:15, eventsWon:7, foreignLang:'German',   modeOfStudy:'Regular', currentEvents:'HackFest 2025' },
-  { sno:7, name:'Arun Babu',        regNo:'21IT007', dept:'IT',  role:'Member',        mobile:'9876543216', mail:'arun@college.edu',     cgpa:8.1, arrears:0, specialLab:'Cyber Lab',   ssg:'No',  eventsAttended:7,  eventsWon:2, foreignLang:'Japanese', modeOfStudy:'Regular', currentEvents:'' },
-  { sno:8, name:'Meera Pillai',     regNo:'21EC008', dept:'ECE', role:'Member',        mobile:'9876543217', mail:'meera@college.edu',    cgpa:8.3, arrears:1, specialLab:'Embedded Lab',ssg:'Yes', eventsAttended:9,  eventsWon:3, foreignLang:'French',   modeOfStudy:'Regular', currentEvents:'Circuit Quest' },
-  { sno:9, name:'Vikram Singh',     regNo:'21CS009', dept:'CSE', role:'Member',        mobile:'9876543218', mail:'vikram@college.edu',   cgpa:7.6, arrears:0, specialLab:'VR Lab',      ssg:'No',  eventsAttended:5,  eventsWon:1, foreignLang:'German',   modeOfStudy:'Regular', currentEvents:'' },
-  { sno:10,name:'Ananya Das',       regNo:'21ME010', dept:'MECH',role:'Member',        mobile:'9876543219', mail:'ananya@college.edu',   cgpa:8.0, arrears:0, specialLab:'CAD Lab',     ssg:'Yes', eventsAttended:6,  eventsWon:2, foreignLang:'Japanese', modeOfStudy:'Regular', currentEvents:'' },
-  { sno:11,name:'Manoj Kumar',      regNo:'21IT011', dept:'IT',  role:'Member',        mobile:'9876543220', mail:'manoj@college.edu',    cgpa:7.4, arrears:3, specialLab:'Network Lab', ssg:'No',  eventsAttended:3,  eventsWon:0, foreignLang:'French',   modeOfStudy:'Regular', currentEvents:'NetSec Challenge' },
-  { sno:12,name:'Lakshmi Suresh',   regNo:'21CS012', dept:'CSE', role:'Member',        mobile:'9876543221', mail:'lakshmi@college.edu',  cgpa:9.1, arrears:0, specialLab:'AI Lab',      ssg:'Yes', eventsAttended:11, eventsWon:4, foreignLang:'German',   modeOfStudy:'Regular', currentEvents:'AI Hackathon' },
-];
-
-const DUMMY_SKILLS = [
-  { regNo:'21CS001', primary1:'Python',   primary2:'Machine Learning', secondary1:'React',    secondary2:'Node.js',   spec1:'Deep Learning',  spec2:'NLP' },
-  { regNo:'21CS002', primary1:'Java',     primary2:'Data Structures',  secondary1:'Spring',   secondary2:'MySQL',     spec1:'Microservices',  spec2:'Kubernetes' },
-  { regNo:'21IT003', primary1:'C++',      primary2:'Embedded Systems', secondary1:'Python',   secondary2:'Arduino',   spec1:'IoT Security',   spec2:'MQTT' },
-  { regNo:'21EC004', primary1:'VHDL',     primary2:'Circuit Design',   secondary1:'Python',   secondary2:'MATLAB',    spec1:'FPGA',           spec2:'Signal Processing' },
-  { regNo:'21ME005', primary1:'AutoCAD',  primary2:'SolidWorks',       secondary1:'Python',   secondary2:'MATLAB',    spec1:'FEA',            spec2:'CFD' },
-  { regNo:'21CS006', primary1:'Python',   primary2:'Cloud Computing',  secondary1:'Docker',   secondary2:'Terraform', spec1:'AWS Solutions',  spec2:'DevSecOps' },
-  { regNo:'21IT007', primary1:'Cybersecurity','primary2':'Penetration Testing',secondary1:'Python',secondary2:'Bash',spec1:'Forensics', spec2:'Malware Analysis' },
-  { regNo:'21EC008', primary1:'Embedded C',primary2:'PCB Design',      secondary1:'Python',   secondary2:'MATLAB',    spec1:'ARM Cortex',     spec2:'RTOS' },
-  { regNo:'21CS009', primary1:'Unity3D',  primary2:'C#',               secondary1:'Blender',  secondary2:'WebGL',     spec1:'VR Development', spec2:'AR' },
-  { regNo:'21ME010', primary1:'CATIA',    primary2:'ANSYS',            secondary1:'Python',   secondary2:'MATLAB',    spec1:'Topology Opt.',  spec2:'Additive Mfg' },
-  { regNo:'21IT011', primary1:'Cisco CCNA','primary2':'Network Admin', secondary1:'Python',   secondary2:'Linux',     spec1:'SDN',            spec2:'NFV' },
-  { regNo:'21CS012', primary1:'Python',   primary2:'NLP',              secondary1:'TensorFlow',secondary2:'PyTorch',  spec1:'Transformers',   spec2:'LLMs' },
-];
-
-const DUMMY_PS = [
-  { regNo:'21CS001', rewardPts:320, activityPts:180, mandatoryCompletion:'Yes', weeklyAttempts:48, weeklyCleared:46 },
-  { regNo:'21CS002', rewardPts:290, activityPts:160, mandatoryCompletion:'Yes', weeklyAttempts:44, weeklyCleared:40 },
-  { regNo:'21IT003', rewardPts:220, activityPts:130, mandatoryCompletion:'Yes', weeklyAttempts:40, weeklyCleared:35 },
-  { regNo:'21EC004', rewardPts:180, activityPts:110, mandatoryCompletion:'No',  weeklyAttempts:36, weeklyCleared:28 },
-  { regNo:'21ME005', rewardPts:140, activityPts:80,  mandatoryCompletion:'No',  weeklyAttempts:30, weeklyCleared:20 },
-  { regNo:'21CS006', rewardPts:410, activityPts:220, mandatoryCompletion:'Yes', weeklyAttempts:52, weeklyCleared:52 },
-  { regNo:'21IT007', rewardPts:240, activityPts:140, mandatoryCompletion:'Yes', weeklyAttempts:42, weeklyCleared:38 },
-  { regNo:'21EC008', rewardPts:260, activityPts:150, mandatoryCompletion:'Yes', weeklyAttempts:46, weeklyCleared:42 },
-  { regNo:'21CS009', rewardPts:170, activityPts:90,  mandatoryCompletion:'No',  weeklyAttempts:32, weeklyCleared:22 },
-  { regNo:'21ME010', rewardPts:190, activityPts:100, mandatoryCompletion:'Yes', weeklyAttempts:38, weeklyCleared:30 },
-  { regNo:'21IT011', rewardPts:120, activityPts:60,  mandatoryCompletion:'No',  weeklyAttempts:28, weeklyCleared:16 },
-  { regNo:'21CS012', rewardPts:380, activityPts:200, mandatoryCompletion:'Yes', weeklyAttempts:50, weeklyCleared:48 },
-];
-
-const DUMMY_EVENTS = [
-  { name:'HackFest 2025',       monthYear:'Mar-2025', host:'SRM Institute', type:'Hackathon' },
-  { name:'CodeSprint',          monthYear:'Feb-2025', host:'VIT Vellore',   type:'Competitive Coding' },
-  { name:'RoboWars',            monthYear:'Jan-2025', host:'Anna University',type:'Robotics' },
-  { name:'Circuit Quest',       monthYear:'Feb-2025', host:'PSG College',   type:'ECE' },
-  { name:'AI Hackathon',        monthYear:'Mar-2025', host:'IIT Madras',    type:'AI/ML' },
-  { name:'NetSec Challenge',    monthYear:'Jan-2025', host:'NIT Trichy',    type:'Cybersecurity' },
-  { name:'CAD Expo',            monthYear:'Feb-2025', host:'CEG Chennai',   type:'Design' },
-];
-
-const DUMMY_ATTENDANCE = [
-  { date:'2025-03-10', regNo:'21ME005', name:'Rohit Verma',    mail:'rohit@college.edu',   missedHour:2 },
-  { date:'2025-03-11', regNo:'21IT011', name:'Manoj Kumar',    mail:'manoj@college.edu',   missedHour:3 },
-  { date:'2025-03-12', regNo:'21EC004', name:'Priya Menon',    mail:'priya@college.edu',   missedHour:1 },
-  { date:'2025-03-13', regNo:'21CS009', name:'Vikram Singh',   mail:'vikram@college.edu',  missedHour:2 },
-  { date:'2025-03-14', regNo:'21ME005', name:'Rohit Verma',    mail:'rohit@college.edu',   missedHour:4 },
-];
-
-// ═══════════════════════════════════════════
-// GOOGLE AUTH CONFIG
-// ═══════════════════════════════════════════
-// ⚠️  REPLACE with your actual Google OAuth Client ID from
-//     https://console.cloud.google.com/  (APIs & Services → Credentials)
-// For local file:// testing, add http://localhost as an Authorized Origin,
-// or use a local server (e.g. VS Code Live Server / python -m http.server)
-const GOOGLE_CLIENT_ID = 'YOUR_GOOGLE_CLIENT_ID.apps.googleusercontent.com';
-
-// Captain role emails — add the captain's real Google email here
+// ② Captain emails — anyone whose "Role" column = "Captain" is also
+//    auto-promoted. Add real Gmail addresses here as a hard override:
 const CAPTAIN_EMAILS = [
-  'arjun@college.edu',     // maps to dummy data captain
-  // add more if needed
+  // 'captain@gmail.com',
 ];
 
-// ═══════════════════════════════════════════
-// INIT
-// ═══════════════════════════════════════════
-document.addEventListener('DOMContentLoaded', () => {
-  setTimeout(() => {
-    updateLoader('NEXUS ONLINE — READY');
-    setTimeout(() => {
-      hideLoader();
-      initGoogleSignIn();
-      showLoginScreen();
-    }, 800);
-  }, 1600);
+const LS_KEY = 'nexus_cap_v3'; // localStorage key for captain data
 
+// ═══════════════════════════════════════════════════════════════
+// GLOBAL STATE
+// ═══════════════════════════════════════════════════════════════
+const S = {
+  mode            : 'member',   // 'member' | 'captain' — set ONCE at login
+  loggedInUser    : null,       // { email, name, picture, regNo, role, inRoster }
+  members         : [],
+  events          : [],
+  attendance      : [],
+  filteredMembers : [],
+  captainData     : { venue:'', tasks:{} },
+  activeSection   : 'dashboard',
+  currentMember   : null,       // member open in modal
+  taskFilter      : 'all',
+  charts          : {},
+};
+
+// ═══════════════════════════════════════════════════════════════
+// FIREBASE CALLBACKS (called from the <script type="module"> in index.html)
+// ═══════════════════════════════════════════════════════════════
+window._onFirebaseUser    = u   => { resetGBtn(); loginWithEmail(u.email||'', u.displayName||'', u.photoURL||''); };
+window._onFirebaseSignOut = ()  => resetGBtn();
+window._onFirebaseError   = msg => { resetGBtn(); showLoginError(msg); };
+
+// ═══════════════════════════════════════════════════════════════
+// BOOT
+// ═══════════════════════════════════════════════════════════════
+document.addEventListener('DOMContentLoaded', () => {
   loadCaptainData();
-  setupEventListeners();
+  wireListeners();
+  setTimeout(() => {
+    setLoader('FIREBASE CONNECTED');
+    setTimeout(() => { hideLoader(); showLoginScreen(); }, 800);
+  }, 1400);
 });
 
-function updateLoader(text) {
-  const el = document.getElementById('loaderSub');
-  if (el) el.textContent = text;
+const setLoader    = t => { const e = document.getElementById('loaderSub'); if(e) e.textContent = t; };
+const hideLoader   = () => { const l = document.getElementById('loader'); l.style.opacity='0'; setTimeout(()=>l.classList.add('hidden'), 500); };
+const showLoginScreen = () => document.getElementById('roleScreen').classList.remove('hidden');
+
+function resetGBtn() {
+  const b = document.getElementById('firebaseGoogleBtn');
+  const s = document.getElementById('googleBtnLoader');
+  const t = document.querySelector('.google-btn-text');
+  if(!b) return;
+  b.disabled = false;
+  if(s) s.classList.add('hidden');
+  if(t) t.style.visibility = 'visible';
 }
 
-function hideLoader() {
-  const loader = document.getElementById('loader');
-  loader.style.opacity = '0';
-  setTimeout(() => loader.classList.add('hidden'), 500);
+// ═══════════════════════════════════════════════════════════════
+// GOOGLE SHEETS → CSV FETCH & PARSE
+// ═══════════════════════════════════════════════════════════════
+async function fetchCSV(gid) {
+  const url = `${CSV_BASE}&gid=${gid}&cachebust=${Date.now()}`;
+  const res = await fetch(url);
+  if(!res.ok) throw new Error(`Sheet gid=${gid} returned HTTP ${res.status}`);
+  return res.text();
 }
 
-function showLoginScreen() {
-  document.getElementById('roleScreen').classList.remove('hidden');
-}
-
-// ═══════════════════════════════════════════
-// GOOGLE IDENTITY SERVICES
-// ═══════════════════════════════════════════
-function initGoogleSignIn() {
-  // Wait for GSI script to load, then render the button
-  const tryInit = () => {
-    if (typeof google !== 'undefined' && google.accounts) {
-      google.accounts.id.initialize({
-        client_id: GOOGLE_CLIENT_ID,
-        callback: handleGoogleCredential,
-        auto_select: false,
-        cancel_on_tap_outside: true,
-      });
-      // Render official Google button
-      google.accounts.id.renderButton(
-        document.getElementById('googleSignInBtn'),
-        {
-          theme: 'filled_black',   // dark theme button
-          size: 'large',
-          width: 320,
-          text: 'signin_with',
-          shape: 'rectangular',
-          logo_alignment: 'left',
-        }
-      );
+function csvToObjects(text) {
+  // Full RFC-4180 CSV parser
+  const rows = []; let row = [], f = '', inQ = false;
+  for(let i = 0; i < text.length; i++) {
+    const c = text[i], n = text[i+1];
+    if(inQ) {
+      if(c==='"' && n==='"') { f+='"'; i++; }
+      else if(c==='"') inQ = false;
+      else f += c;
     } else {
-      // GSI not loaded yet — retry
-      setTimeout(tryInit, 300);
+      if(c==='"') inQ = true;
+      else if(c===',') { row.push(f.trim()); f=''; }
+      else if(c==='\r'&&n==='\n') { row.push(f.trim()); rows.push(row); row=[]; f=''; i++; }
+      else if(c==='\n'||c==='\r') { row.push(f.trim()); rows.push(row); row=[]; f=''; }
+      else f += c;
     }
-  };
-  tryInit();
-}
-
-// Called by Google after user picks account
-function handleGoogleCredential(response) {
-  try {
-    // Decode the JWT credential (no signature verify needed on frontend)
-    const payload = parseJwt(response.credential);
-    const email = payload.email || '';
-    const name = payload.name || email.split('@')[0];
-    const picture = payload.picture || '';
-
-    loginWithEmail(email, name, picture);
-  } catch (err) {
-    console.error('Google login error:', err);
-    showLoginError('Google authentication failed. Please try again.');
   }
+  if(f||row.length) { row.push(f.trim()); rows.push(row); }
+  const clean = rows.filter(r => r.some(c => c!==''));
+  if(!clean.length) return [];
+  const [hdr, ...data] = clean;
+  return data.map(r => { const o={}; hdr.forEach((h,i) => { o[h.trim()] = (r[i]||'').trim(); }); return o; });
 }
 
-// Parse JWT payload (base64 decode — no verification needed for display purposes)
-function parseJwt(token) {
-  const base64Url = token.split('.')[1];
-  const base64 = base64Url.replace(/-/g, '+').replace(/_/g, '/');
-  const jsonPayload = decodeURIComponent(
-    atob(base64).split('').map(c => '%' + ('00' + c.charCodeAt(0).toString(16)).slice(-2)).join('')
-  );
-  return JSON.parse(jsonPayload);
+// Safely read a column — tries multiple possible header names
+function col(row, ...keys) {
+  for(const k of keys) {
+    for(const attempt of [k, k.toLowerCase(), k.toUpperCase()]) {
+      if(row[attempt] !== undefined && String(row[attempt]).trim() !== '')
+        return String(row[attempt]).trim();
+    }
+  }
+  return 'N/A';
 }
 
-// Core login function — works for Google & demo logins
-function loginWithEmail(email, name, picture = '') {
-  // First load data so we can match against roster
-  mergeAndSetMembers(DUMMY_DETAILS, DUMMY_SKILLS, DUMMY_PS);
-  State.events = DUMMY_EVENTS;
-  State.attendance = DUMMY_ATTENDANCE;
-
-  // Match email to roster
-  const emailLower = email.toLowerCase();
-  const rosterMatch = State.members.find(m => (m.mail || '').toLowerCase() === emailLower);
-
-  // Determine mode: captain if email is in CAPTAIN_EMAILS OR roster role is Captain
-  const isCaptainEmail = CAPTAIN_EMAILS.map(e => e.toLowerCase()).includes(emailLower);
-  const rosterRole = rosterMatch ? (rosterMatch.role || '').toLowerCase() : '';
-  const isCaptainRole = rosterRole.includes('captain') && !rosterRole.includes('vice');
-  const isCaptain = isCaptainEmail || isCaptainRole;
-
-  // Set logged-in user state
-  State.loggedInUser = {
-    email,
-    name: rosterMatch ? rosterMatch.name : name,
-    picture,
-    regNo: rosterMatch ? rosterMatch.regNo : null,
-    role: rosterMatch ? rosterMatch.role : (isCaptain ? 'Captain' : 'Guest'),
-    inRoster: !!rosterMatch,
+// ── Row parsers (match your actual sheet column names) ──────────
+function parseDetail(r) {
+  const regNo = col(r,'Reg. No.','Reg No','RegNo','Registration Number','Reg.No.');
+  if(!regNo || regNo==='N/A') return null;
+  return {
+    regNo,
+    sno           : col(r,'S. No','S.No','sno'),
+    name          : col(r,'Name','name'),
+    dept          : col(r,'Department','Dept','dept'),
+    role          : col(r,'Role','role'),
+    mobile        : col(r,'Mobile Number','Mobile','Phone','mobile'),
+    mail          : col(r,'Mail ID','Email','Email ID','mail'),
+    cgpa          : parseFloat(col(r,'CGPA','cgpa')) || 0,
+    arrears       : parseInt(col(r,'Arrears Count','Arrears','arrears')) || 0,
+    specialLab    : col(r,'Special Lab','specialLab'),
+    ssg           : col(r,'Member of SSG','SSG','ssg'),
+    eventsAttended: parseInt(col(r,'Events Attended','eventsAttended')) || 0,
+    eventsWon     : parseInt(col(r,'Events Won','eventsWon')) || 0,
+    foreignLang   : col(r,'Foreign Language Selected','Foreign Language','foreignLang'),
+    modeOfStudy   : col(r,'Mode of Study','modeOfStudy'),
+    currentEvents : col(r,'Currently Registered Events','Current Events','currentEvents'),
   };
+}
+function parseSkill(r) {
+  const regNo = col(r,'Reg. No.','Reg No','RegNo');
+  if(!regNo||regNo==='N/A') return null;
+  return { regNo,
+    primary1  : col(r,'Primary Skill 1','primary1'),
+    primary2  : col(r,'Primary Skill 2','primary2'),
+    secondary1: col(r,'Secondary Skill 1','secondary1'),
+    secondary2: col(r,'Secondary Skill 2','secondary2'),
+    spec1     : col(r,'Specialization Skill 1','spec1'),
+    spec2     : col(r,'Specialization Skill 2','spec2'),
+  };
+}
+function parsePS(r) {
+  const regNo = col(r,'Reg. No.','Reg No','RegNo');
+  if(!regNo||regNo==='N/A') return null;
+  return { regNo,
+    rewardPts           : parseInt(col(r,'Reward Points','rewardPts'))||0,
+    activityPts         : parseInt(col(r,'Activity Points','activityPts'))||0,
+    mandatoryCompletion : col(r,'Mandatory PS Completion','mandatoryCompletion'),
+    weeklyAttempts      : parseInt(col(r,'Weekly Attempts','weeklyAttempts'))||0,
+    weeklyCleared       : parseInt(col(r,'Weekly Cleared','weeklyCleared'))||0,
+  };
+}
+function parseEvent(r) {
+  return { name:col(r,'Event Name','name'), monthYear:col(r,'Month-Year','monthYear'), host:col(r,'Host','host'), type:col(r,'Type','type') };
+}
+function parseAttend(r) {
+  return { date:col(r,'Date','date'), regNo:col(r,'Register Number','Reg No','regNo'),
+           name:col(r,'Name','name'), mail:col(r,'Mail ID','Email','mail'),
+           missedHour:parseInt(col(r,'Missed Hour','Missed Hours','missedHour'))||0 };
+}
 
-  State.mode = isCaptain ? 'captain' : 'member';
+function mergeMembers(details, skills, ps) {
+  const sm={}, pm={};
+  skills.forEach(s => sm[s.regNo]=s);
+  ps.forEach(p => pm[p.regNo]=p);
+  return details.map(d => ({ ...d, skills: sm[d.regNo]||{}, ps: pm[d.regNo]||{} }));
+}
 
-  // Enter app
+async function loadSheetData() {
+  setLoader('FETCHING TEAM DATA FROM GOOGLE SHEETS…');
+  const settled = await Promise.allSettled([
+    fetchCSV(GID.details), fetchCSV(GID.skills), fetchCSV(GID.ps),
+    fetchCSV(GID.events),  fetchCSV(GID.attendance),
+  ]);
+  const ok = r => r.status==='fulfilled' ? csvToObjects(r.value) : [];
+  const details  = ok(settled[0]).map(parseDetail).filter(Boolean);
+  const skills   = ok(settled[1]).map(parseSkill).filter(Boolean);
+  const ps       = ok(settled[2]).map(parsePS).filter(Boolean);
+  S.members      = mergeMembers(details, skills, ps);
+  S.events       = ok(settled[3]).map(parseEvent);
+  S.attendance   = ok(settled[4]).map(parseAttend);
+  S.filteredMembers = [...S.members];
+  if(!details.length)
+    showToast('No data loaded — make the Google Sheet public (Anyone with link → Viewer) and verify GID values.','warning');
+}
+
+// ═══════════════════════════════════════════════════════════════
+// CORE LOGIN — the only place S.mode is assigned
+// ═══════════════════════════════════════════════════════════════
+async function loginWithEmail(email, displayName, picture) {
+  // Show loading state in card
+  const card = document.getElementById('loginCard');
+  if(card) card.innerHTML = `
+    <div style="padding:48px 20px;text-align:center">
+      <div class="loader-ring" style="margin:0 auto 20px;width:52px;height:52px;border-width:3px"></div>
+      <p class="login-status-text" style="color:var(--cyan);margin-bottom:6px">LOADING TEAM DATA…</p>
+      <p style="font-family:var(--font-mono);font-size:11px;color:var(--text-muted)">${email}</p>
+    </div>`;
+
+  try { await loadSheetData(); }
+  catch(err) {
+    console.error('Sheet load error:', err);
+    showToast('Could not load Google Sheet. Make it public and check GIDs.','error');
+    location.reload(); return;
+  }
+
+  const el    = email.toLowerCase();
+  const match = S.members.find(m => (m.mail||'').toLowerCase() === el);
+  const rRole = (match?.role||'').toLowerCase();
+
+  // Captain: email in CAPTAIN_EMAILS list  OR  "captain" in role (not "vice captain")
+  const capByEmail = CAPTAIN_EMAILS.map(e=>e.toLowerCase()).includes(el);
+  const capByRole  = rRole.includes('captain') && !rRole.includes('vice');
+  const isCaptain  = capByEmail || capByRole;
+
+  S.loggedInUser = {
+    email, picture,
+    name    : match ? match.name    : (displayName || email.split('@')[0]),
+    regNo   : match ? match.regNo   : null,
+    role    : match ? match.role    : (isCaptain ? 'Captain' : 'Guest'),
+    inRoster: !!match,
+  };
+  S.mode = isCaptain ? 'captain' : 'member'; // SET ONCE — never changed again
+
   document.getElementById('roleScreen').classList.add('hidden');
   document.getElementById('loginError').classList.add('hidden');
   document.getElementById('mainApp').classList.remove('hidden');
 
   applyModeUI();
   renderUserProfile();
-
-  State.filteredMembers = [...State.members];
   renderAll();
-  updateVenueControlVisibility();
 
-  const greeting = isCaptain ? `Welcome, Captain ${State.loggedInUser.name.split(' ')[0]}!` : `Welcome, ${State.loggedInUser.name.split(' ')[0]}!`;
-  showToast(greeting, isCaptain ? 'success' : 'info');
-
-  if (!rosterMatch) {
-    showToast('Note: Your email was not found in the team roster. Showing full dashboard.', 'warning');
-  }
+  showToast(
+    isCaptain
+      ? `Welcome Captain ${S.loggedInUser.name.split(' ')[0]}! Full access granted.`
+      : `Welcome ${S.loggedInUser.name.split(' ')[0]}. Signed in as Member.`,
+    isCaptain ? 'success' : 'info'
+  );
+  if(!match) showToast('Email not found in roster — guest view active.','warning');
 }
 
 function showLoginError(msg) {
-  const box = document.getElementById('loginError');
   document.getElementById('loginErrMsg').textContent = msg;
-  box.classList.remove('hidden');
+  document.getElementById('loginError').classList.remove('hidden');
 }
 
-// ═══════════════════════════════════════════
-// RENDER USER PROFILE IN UI
-// ═══════════════════════════════════════════
-function renderUserProfile() {
-  const u = State.loggedInUser;
-  if (!u) return;
+// ═══════════════════════════════════════════════════════════════
+// SIGN OUT
+// ═══════════════════════════════════════════════════════════════
+function signOut() {
+  if(typeof window._fbSignOut==='function') window._fbSignOut().catch(()=>{});
+  location.reload();
+}
 
-  const initials = u.name.split(' ').map(w => w[0]).slice(0, 2).join('').toUpperCase();
+// ═══════════════════════════════════════════════════════════════
+// MODE UI — controls every visible element based on role
+// ═══════════════════════════════════════════════════════════════
+function applyModeUI() {
+  const isCap = S.mode === 'captain';
 
-  // Sidebar
-  document.getElementById('sbUserName').textContent = u.name;
-  document.getElementById('sbUserEmail').textContent = u.email;
-  const sbAv = document.getElementById('sbUserAvatar');
-  if (u.picture) {
-    sbAv.innerHTML = `<img src="${u.picture}" alt="${u.name}" onerror="this.parentElement.textContent='${initials}'">`;
-  } else {
-    sbAv.textContent = initials;
+  // Mode pill
+  const tag   = document.getElementById('sbModeTag');
+  const badge = document.getElementById('modeBadge');
+  tag.textContent         = isCap ? '● CAPTAIN MODE'          : '● MEMBER MODE';
+  tag.style.color         = isCap ? 'var(--gold)'             : 'var(--green)';
+  badge.textContent       = isCap ? 'CAPTAIN'                 : 'MEMBER';
+  badge.style.background  = isCap ? 'rgba(255,215,0,0.1)'     : 'var(--cyan-glow)';
+  badge.style.color       = isCap ? 'var(--gold)'             : 'var(--cyan)';
+  badge.style.borderColor = isCap ? 'rgba(255,215,0,0.3)'     : 'var(--cyan-dim)';
+
+  // Show/hide captain-only DOM elements (nav links, task tab, etc.)
+  document.querySelectorAll('.captain-only').forEach(el => el.classList.toggle('hidden', !isCap));
+}
+
+// ═══════════════════════════════════════════════════════════════
+// ACCESS GUARD — call this at the top of every captain action
+// ═══════════════════════════════════════════════════════════════
+function requireCaptain(label) {
+  if(S.mode !== 'captain') {
+    showToast(`"${label}" is Captain-only. You are signed in as Member.`, 'error');
+    return false;
   }
+  return true;
+}
 
-  // Topbar
+// ═══════════════════════════════════════════════════════════════
+// USER PROFILE DISPLAY
+// ═══════════════════════════════════════════════════════════════
+function renderUserProfile() {
+  const u = S.loggedInUser; if(!u) return;
+  const ini = u.name.split(' ').map(w=>w[0]).slice(0,2).join('').toUpperCase();
+  const img = p => `<img src="${p}" alt="${ini}" onerror="this.parentElement.textContent='${ini}'">`;
+
+  document.getElementById('sbUserName').textContent  = u.name;
+  document.getElementById('sbUserEmail').textContent = u.email;
+  document.getElementById('sbUserAvatar').innerHTML  = u.picture ? img(u.picture) : ini;
+
   document.getElementById('topbarUserName').textContent = u.name.split(' ')[0];
   document.getElementById('topbarUserRole').textContent = u.role || '—';
-  const tbAv = document.getElementById('topbarAvatar');
-  if (u.picture) {
-    tbAv.innerHTML = `<img src="${u.picture}" alt="${u.name}" onerror="this.parentElement.textContent='${initials}'">`;
-  } else {
-    tbAv.textContent = initials;
-  }
+  document.getElementById('topbarAvatar').innerHTML     = u.picture ? img(u.picture) : ini;
 }
 
-// ═══════════════════════════════════════════
-// VENUE VISIBILITY — captain edits, member reads
-// ═══════════════════════════════════════════
-function updateVenueControlVisibility() {
-  const isCap = State.mode === 'captain';
-  const editForm = document.getElementById('venueEditForm');
-  const readOnly = document.getElementById('venueReadOnly');
-  if (editForm) editForm.classList.toggle('hidden', !isCap);
-  if (readOnly) readOnly.classList.toggle('hidden', isCap);
-  // Update read-only text
-  const roText = document.getElementById('venueReadOnlyText');
-  if (roText) roText.textContent = State.captainData.venue || 'Not Set';
-}
-
-// ═══════════════════════════════════════════
+// ═══════════════════════════════════════════════════════════════
 // EVENT LISTENERS
-// ═══════════════════════════════════════════
-function setupEventListeners() {
-  // Demo login buttons
-  document.getElementById('demoMemberBtn').addEventListener('click', () => {
-    loginWithEmail('arjun@college.edu', 'Arjun Sharma', '');
-    // Override to member for demo
-    State.mode = 'member';
-    State.loggedInUser.role = 'Member (Demo)';
-    applyModeUI();
-    renderUserProfile();
-    updateVenueControlVisibility();
-    showToast('Demo: Member mode activated', 'info');
-  });
-  document.getElementById('demoCaptainBtn').addEventListener('click', () => {
-    loginWithEmail('arjun@college.edu', 'Arjun Sharma', '');
-    showToast('Demo: Captain mode activated', 'success');
+// ═══════════════════════════════════════════════════════════════
+function wireListeners() {
+
+  // ── Firebase Google button ────────────────────────────────────
+  document.getElementById('firebaseGoogleBtn').addEventListener('click', () => {
+    const b = document.getElementById('firebaseGoogleBtn');
+    const s = document.getElementById('googleBtnLoader');
+    const t = document.querySelector('.google-btn-text');
+    b.disabled = true;
+    if(s) s.classList.remove('hidden');
+    if(t) t.style.visibility = 'hidden';
+    if(typeof window._firebaseGoogleSignIn === 'function') {
+      window._firebaseGoogleSignIn();
+    } else {
+      setTimeout(() => {
+        if(typeof window._firebaseGoogleSignIn === 'function') window._firebaseGoogleSignIn();
+        else { resetGBtn(); showLoginError('Firebase not ready — please refresh the page.'); }
+      }, 1500);
+    }
   });
 
-  // Login retry
   document.getElementById('loginRetry').addEventListener('click', () => {
     document.getElementById('loginError').classList.add('hidden');
   });
 
-  // PIN modal (kept as fallback if needed)
-  document.getElementById('pinCancel').addEventListener('click', closePinModal);
-  document.getElementById('pinSubmit').addEventListener('click', submitPin);
-  setupPinInputs();
-
-  // Hamburger
+  // ── Hamburger ─────────────────────────────────────────────────
   document.getElementById('hamburger').addEventListener('click', toggleSidebar);
   document.addEventListener('click', e => {
-    const sb = document.getElementById('sidebar');
-    const hb = document.getElementById('hamburger');
-    if (sb.classList.contains('open') && !sb.contains(e.target) && !hb.contains(e.target)) {
+    const sb = document.getElementById('sidebar'), hb = document.getElementById('hamburger');
+    if(sb.classList.contains('open') && !sb.contains(e.target) && !hb.contains(e.target))
       sb.classList.remove('open');
+  });
+
+  // ── Navigation ────────────────────────────────────────────────
+  document.querySelectorAll('.nav-item').forEach(item => item.addEventListener('click', e => {
+    e.preventDefault();
+    const sec = item.dataset.section;
+    // Block member from captain-only sections
+    if((sec==='captain'||sec==='attendance') && S.mode!=='captain') {
+      showToast('Captain access required for this section.','error');
+      return;
     }
-  });
+    navigateTo(sec);
+    document.getElementById('sidebar').classList.remove('open');
+  }));
 
-  // Nav items
-  document.querySelectorAll('.nav-item').forEach(item => {
-    item.addEventListener('click', e => {
-      e.preventDefault();
-      const sec = item.dataset.section;
-      navigateTo(sec);
-      document.getElementById('sidebar').classList.remove('open');
-    });
-  });
+  document.getElementById('signOutBtn').addEventListener('click', signOut);
 
-  // Sign Out
-  document.getElementById('switchRole').addEventListener('click', signOut);
+  // ── Filters ───────────────────────────────────────────────────
+  document.getElementById('searchInput')  .addEventListener('input',  applyFilters);
+  document.getElementById('filterDept')   .addEventListener('change', applyFilters);
+  document.getElementById('filterRole')   .addEventListener('change', applyFilters);
+  document.getElementById('sortBy')       .addEventListener('change', applyFilters);
+  document.getElementById('clearFilters') .addEventListener('click',  clearFilters);
 
-  // Excel Upload
-  document.getElementById('excelUpload').addEventListener('change', handleExcelUpload);
-
-  // Search/Filter/Sort
-  document.getElementById('searchInput').addEventListener('input', applyFilters);
-  document.getElementById('filterDept').addEventListener('change', applyFilters);
-  document.getElementById('filterRole').addEventListener('change', applyFilters);
-  document.getElementById('sortBy').addEventListener('change', applyFilters);
-  document.getElementById('clearFilters').addEventListener('click', clearFilters);
-
-  // View Toggle
-  document.getElementById('viewCard').addEventListener('click', () => setView('card'));
+  // ── View toggle ───────────────────────────────────────────────
+  document.getElementById('viewCard') .addEventListener('click', () => setView('card'));
   document.getElementById('viewTable').addEventListener('click', () => setView('table'));
 
-  // Captain Panel
-  document.getElementById('saveVenue').addEventListener('click', saveVenue);
-  document.getElementById('assignBulkTask').addEventListener('click', assignBulkTask);
-  document.getElementById('exportTasks').addEventListener('click', exportTasks);
-  document.getElementById('resetTasks').addEventListener('click', resetTasks);
-  document.getElementById('taskSearchInput').addEventListener('input', renderTaskTable);
+  // ── Captain panel buttons (all guarded by requireCaptain inside) ──
+  document.getElementById('saveVenue')       .addEventListener('click', saveVenue);
+  document.getElementById('assignBulkTask') .addEventListener('click', assignBulkTask);
+  document.getElementById('exportTasks')    .addEventListener('click', exportTasks);
+  document.getElementById('resetTasks')     .addEventListener('click', resetAllTasks);
+  document.getElementById('taskSearchInput').addEventListener('input',  renderTaskTable);
   document.getElementById('taskStatusFilter').addEventListener('change', renderTaskTable);
 
-  // Task Overview Filters
-  document.querySelectorAll('.tob-item').forEach(item => {
-    item.addEventListener('click', () => {
-      State.taskFilter = item.dataset.filter;
-      document.querySelectorAll('.tob-item').forEach(i => i.classList.remove('active'));
-      item.classList.add('active');
-      renderTaskTable();
-    });
-  });
+  document.querySelectorAll('.tob-item').forEach(item => item.addEventListener('click', () => {
+    S.taskFilter = item.dataset.filter;
+    document.querySelectorAll('.tob-item').forEach(i=>i.classList.remove('active'));
+    item.classList.add('active');
+    renderTaskTable();
+  }));
 
-  // Member Modal
+  // ── Member modal ──────────────────────────────────────────────
   document.getElementById('closeModal').addEventListener('click', closeModal);
   document.getElementById('memberModal').addEventListener('click', e => {
-    if (e.target === document.getElementById('memberModal')) closeModal();
+    if(e.target===document.getElementById('memberModal')) closeModal();
   });
-
-  // Modal tabs
-  document.querySelectorAll('.mm-tab').forEach(tab => {
-    tab.addEventListener('click', () => switchModalTab(tab.dataset.tab));
-  });
-
-  // Save Task in Modal
+  document.querySelectorAll('.mm-tab').forEach(tab => tab.addEventListener('click', () => {
+    // Block member from clicking the Task tab (it shouldn't even be visible, but extra safety)
+    if(tab.dataset.tab==='tasks' && S.mode!=='captain') {
+      showToast('Task management is Captain-only.','error'); return;
+    }
+    switchModalTab(tab.dataset.tab);
+  }));
   document.getElementById('saveTask').addEventListener('click', saveModalTask);
 }
 
-// ═══════════════════════════════════════════
-// SIGN OUT
-// ═══════════════════════════════════════════
-function signOut() {
-  // Sign out from Google if GSI is loaded
-  if (typeof google !== 'undefined' && google.accounts) {
-    google.accounts.id.disableAutoSelect();
-    if (State.loggedInUser?.email) {
-      google.accounts.id.revoke(State.loggedInUser.email, () => {});
-    }
-  }
-  State.loggedInUser = null;
-  State.mode = 'member';
-  State.members = [];
-  State.filteredMembers = [];
-
-  document.getElementById('mainApp').classList.add('hidden');
-  document.getElementById('loginError').classList.add('hidden');
-  document.getElementById('roleScreen').classList.remove('hidden');
-  showToast('Signed out successfully', 'info');
-}
-
-// ═══════════════════════════════════════════
-// ROLE / AUTH HELPERS
-// ═══════════════════════════════════════════
-function applyModeUI() {
-  const isCap = State.mode === 'captain';
-  const tag = document.getElementById('sbModeTag');
-  const badge = document.getElementById('modeBadge');
-  tag.textContent = isCap ? '● CAPTAIN MODE' : '● MEMBER MODE';
-  tag.style.color = isCap ? 'var(--gold)' : 'var(--green)';
-  badge.textContent = isCap ? 'CAPTAIN' : 'MEMBER';
-  badge.style.background = isCap ? 'rgba(255,215,0,0.1)' : 'var(--cyan-glow)';
-  badge.style.color = isCap ? 'var(--gold)' : 'var(--cyan)';
-  badge.style.borderColor = isCap ? 'rgba(255,215,0,0.3)' : 'var(--cyan-dim)';
-
-  document.querySelectorAll('.captain-only').forEach(el => {
-    el.classList.toggle('hidden', !isCap);
-  });
-}
-
-function openPinModal() {
-  document.getElementById('pinModal').classList.remove('hidden');
-  document.querySelector('.pin-input[data-idx="0"]').focus();
-  clearPinInputs();
-}
-
-function closePinModal() {
-  document.getElementById('pinModal').classList.add('hidden');
-  clearPinInputs();
-  document.getElementById('pinError').classList.add('hidden');
-}
-
-function clearPinInputs() {
-  document.querySelectorAll('.pin-input').forEach(i => i.value = '');
-}
-
-function setupPinInputs() {
-  const inputs = document.querySelectorAll('.pin-input');
-  inputs.forEach((input, idx) => {
-    input.addEventListener('input', () => {
-      if (input.value && idx < inputs.length - 1) inputs[idx + 1].focus();
-    });
-    input.addEventListener('keydown', e => {
-      if (e.key === 'Backspace' && !input.value && idx > 0) inputs[idx - 1].focus();
-      if (e.key === 'Enter') submitPin();
-    });
-  });
-}
-
-function submitPin() {
-  const pin = Array.from(document.querySelectorAll('.pin-input')).map(i => i.value).join('');
-  if (pin === CAPTAIN_PIN) {
-    closePinModal();
-  } else {
-    const err = document.getElementById('pinError');
-    err.classList.remove('hidden');
-    clearPinInputs();
-    document.querySelector('.pin-input[data-idx="0"]').focus();
-    setTimeout(() => err.classList.add('hidden'), 3000);
-  }
-}
-
-// ═══════════════════════════════════════════
+// ═══════════════════════════════════════════════════════════════
 // NAVIGATION
-// ═══════════════════════════════════════════
-function navigateTo(section) {
-  State.activeSection = section;
-  document.querySelectorAll('.section').forEach(s => s.classList.remove('active'));
-  document.querySelectorAll('.nav-item').forEach(n => n.classList.remove('active'));
-
-  const sec = document.getElementById(`sec-${section}`);
-  if (sec) sec.classList.add('active');
-  document.querySelector(`.nav-item[data-section="${section}"]`)?.classList.add('active');
-
-  const labels = { dashboard:'DASHBOARD', members:'MEMBERS', analytics:'ANALYTICS', events:'EVENTS', captain:'CAPTAIN PANEL', attendance:'ATTENDANCE' };
-  document.getElementById('topbarSection').textContent = labels[section] || section.toUpperCase();
-
-  if (section === 'analytics') renderAnalyticsCharts();
-  if (section === 'captain') { renderTaskTable(); updateTaskOverview(); updateVenueControlVisibility(); }
+// ═══════════════════════════════════════════════════════════════
+function navigateTo(sec) {
+  S.activeSection = sec;
+  document.querySelectorAll('.section').forEach(x=>x.classList.remove('active'));
+  document.querySelectorAll('.nav-item').forEach(x=>x.classList.remove('active'));
+  document.getElementById(`sec-${sec}`)?.classList.add('active');
+  document.querySelector(`.nav-item[data-section="${sec}"]`)?.classList.add('active');
+  const L = {dashboard:'DASHBOARD',members:'MEMBERS',analytics:'ANALYTICS',events:'EVENTS',captain:'CAPTAIN PANEL',attendance:'ATTENDANCE'};
+  document.getElementById('topbarSection').textContent = L[sec] || sec.toUpperCase();
+  if(sec==='analytics') renderAnalyticsCharts();
+  if(sec==='captain')   { renderTaskTable(); updateTaskOverview(); updateVenueDisplay(); }
 }
+function toggleSidebar() { document.getElementById('sidebar').classList.toggle('open'); }
 
-function toggleSidebar() {
-  document.getElementById('sidebar').classList.toggle('open');
-}
-
-// ═══════════════════════════════════════════
-// DATA LOADING
-// ═══════════════════════════════════════════
-function loadDummyData() {
-  mergeAndSetMembers(DUMMY_DETAILS, DUMMY_SKILLS, DUMMY_PS);
-  State.events = DUMMY_EVENTS;
-  State.attendance = DUMMY_ATTENDANCE;
-  State.filteredMembers = [...State.members];
-  renderAll();
-  showToast('Sample data loaded — upload Excel to replace', 'info');
-}
-
-function handleExcelUpload(e) {
-  const file = e.target.files[0];
-  if (!file) return;
-  showToast('Parsing Excel file...', 'info');
-  const reader = new FileReader();
-  reader.onload = evt => {
-    try {
-      const wb = XLSX.read(evt.target.result, { type: 'array' });
-      const details  = parseSheet(wb, 0, parseDetailRow);
-      const skills   = parseSheet(wb, 1, parseSkillRow);
-      const ps       = parseSheet(wb, 2, parsePSRow);
-      const evts     = parseSheet(wb, 3, parseEventRow);
-      const attend   = parseSheet(wb, 4, parseAttendRow);
-
-      mergeAndSetMembers(details, skills, ps);
-      State.events = evts.length ? evts : DUMMY_EVENTS;
-      State.attendance = attend.length ? attend : DUMMY_ATTENDANCE;
-      State.filteredMembers = [...State.members];
-      renderAll();
-      showToast(`Excel loaded! ${State.members.length} members found.`, 'success');
-    } catch (err) {
-      console.error(err);
-      showToast('Error parsing Excel. Check console.', 'error');
-    }
-  };
-  reader.readAsArrayBuffer(file);
-  e.target.value = '';
-}
-
-function parseSheet(wb, idx, rowFn) {
-  const sheet = wb.Sheets[wb.SheetNames[idx]];
-  if (!sheet) return [];
-  const rows = XLSX.utils.sheet_to_json(sheet, { defval: '' });
-  return rows.slice(0).map(rowFn).filter(Boolean);
-}
-
-function cell(row, ...keys) {
-  for (const k of keys) {
-    const v = row[k] ?? row[k.toLowerCase()] ?? row[k.toUpperCase()];
-    if (v !== undefined && v !== '') return String(v).trim();
-  }
-  return 'N/A';
-}
-
-function parseDetailRow(r) {
-  const regNo = cell(r, 'Reg. No.', 'Reg No', 'RegNo', 'reg_no');
-  if (!regNo || regNo === 'N/A') return null;
-  return {
-    sno: cell(r, 'S. No', 'S.No', 'sno'),
-    name: cell(r, 'Name', 'name'),
-    regNo, dept: cell(r, 'Department', 'Dept', 'dept'),
-    role: cell(r, 'Role', 'role'),
-    mobile: cell(r, 'Mobile Number', 'Mobile', 'mobile'),
-    mail: cell(r, 'Mail ID', 'Email', 'mail'),
-    cgpa: parseFloat(cell(r, 'CGPA', 'cgpa')) || 0,
-    arrears: parseInt(cell(r, 'Arrears Count', 'arrears')) || 0,
-    specialLab: cell(r, 'Special Lab', 'specialLab'),
-    ssg: cell(r, 'Member of SSG', 'SSG', 'ssg'),
-    eventsAttended: parseInt(cell(r, 'Events Attended', 'eventsAttended')) || 0,
-    eventsWon: parseInt(cell(r, 'Events Won', 'eventsWon')) || 0,
-    foreignLang: cell(r, 'Foreign Language Selected', 'foreignLang'),
-    modeOfStudy: cell(r, 'Mode of Study', 'modeOfStudy'),
-    currentEvents: cell(r, 'Currently Registered Events', 'currentEvents'),
-  };
-}
-
-function parseSkillRow(r) {
-  const regNo = cell(r, 'Reg. No.', 'Reg No', 'RegNo');
-  if (!regNo || regNo === 'N/A') return null;
-  return {
-    regNo,
-    primary1: cell(r, 'Primary Skill 1', 'primary1'),
-    primary2: cell(r, 'Primary Skill 2', 'primary2'),
-    secondary1: cell(r, 'Secondary Skill 1', 'secondary1'),
-    secondary2: cell(r, 'Secondary Skill 2', 'secondary2'),
-    spec1: cell(r, 'Specialization Skill 1', 'spec1'),
-    spec2: cell(r, 'Specialization Skill 2', 'spec2'),
-  };
-}
-
-function parsePSRow(r) {
-  const regNo = cell(r, 'Reg. No.', 'Reg No', 'RegNo');
-  if (!regNo || regNo === 'N/A') return null;
-  return {
-    regNo,
-    rewardPts: parseInt(cell(r, 'Reward Points', 'rewardPts')) || 0,
-    activityPts: parseInt(cell(r, 'Activity Points', 'activityPts')) || 0,
-    mandatoryCompletion: cell(r, 'Mandatory PS Completion', 'mandatoryCompletion'),
-    weeklyAttempts: parseInt(cell(r, 'Weekly Attempts', 'weeklyAttempts')) || 0,
-    weeklyCleared: parseInt(cell(r, 'Weekly Cleared', 'weeklyCleared')) || 0,
-  };
-}
-
-function parseEventRow(r) {
-  return {
-    name: cell(r, 'Event Name', 'name'),
-    monthYear: cell(r, 'Month-Year', 'monthYear'),
-    host: cell(r, 'Host', 'host'),
-    type: cell(r, 'Type', 'type'),
-  };
-}
-
-function parseAttendRow(r) {
-  return {
-    date: cell(r, 'Date', 'date'),
-    regNo: cell(r, 'Register Number', 'Reg No', 'regNo'),
-    name: cell(r, 'Name', 'name'),
-    mail: cell(r, 'Mail ID', 'Email', 'mail'),
-    missedHour: parseInt(cell(r, 'Missed Hour', 'missedHour')) || 0,
-  };
-}
-
-function mergeAndSetMembers(details, skills, ps) {
-  const skillMap = {};
-  skills.forEach(s => skillMap[s.regNo] = s);
-  const psMap = {};
-  ps.forEach(p => psMap[p.regNo] = p);
-
-  State.members = details.map(d => ({
-    ...d,
-    skills: skillMap[d.regNo] || {},
-    ps: psMap[d.regNo] || {},
-  }));
-}
-
-// ═══════════════════════════════════════════
-// CAPTAIN DATA (localStorage)
-// ═══════════════════════════════════════════
+// ═══════════════════════════════════════════════════════════════
+// CAPTAIN DATA (localStorage — venue & tasks persist across sessions)
+// ═══════════════════════════════════════════════════════════════
 function loadCaptainData() {
-  try {
-    State.captainData = JSON.parse(localStorage.getItem(LS_KEY)) || { venue: '', tasks: {} };
-  } catch {
-    State.captainData = { venue: '', tasks: {} };
-  }
+  try { S.captainData = JSON.parse(localStorage.getItem(LS_KEY)) || {venue:'',tasks:{}}; }
+  catch(_) { S.captainData = {venue:'',tasks:{}}; }
   updateVenueDisplay();
 }
+function saveCaptainData() { localStorage.setItem(LS_KEY, JSON.stringify(S.captainData)); }
 
-function saveCaptainData() {
-  localStorage.setItem(LS_KEY, JSON.stringify(State.captainData));
-}
-
+// ── VENUE ────────────────────────────────────────────────────────
 function saveVenue() {
-  const v = document.getElementById('venueInput').value.trim();
-  if (!v) { showToast('Enter a venue first', 'warning'); return; }
-  State.captainData.venue = v;
+  if(!requireCaptain('Venue update')) return; // hard guard
+  const v = (document.getElementById('venueInput').value||'').trim();
+  if(!v) { showToast('Enter a venue first','warning'); return; }
+  S.captainData.venue = v;
   saveCaptainData();
   updateVenueDisplay();
-  showToast(`Venue updated: ${v}`, 'success');
+  showToast('Venue updated: ' + v, 'success');
 }
-
 function updateVenueDisplay() {
-  const v = State.captainData.venue || 'Not Set';
-  document.getElementById('venueText').textContent = `Venue: ${v}`;
+  const v = S.captainData.venue || 'Not Set';
+  document.getElementById('venueText').textContent = 'Venue: ' + v;
   const inp = document.getElementById('venueInput');
-  if (inp) inp.value = State.captainData.venue || '';
-  // Also update read-only display
-  const roText = document.getElementById('venueReadOnlyText');
-  if (roText) roText.textContent = v;
+  if(inp) inp.value = S.captainData.venue || '';
 }
 
+// ── TASKS ─────────────────────────────────────────────────────────
 function getTask(regNo) {
-  return State.captainData.tasks[regNo] || { title: '', priority: 'medium', dueDate: '', status: 'pending', remarks: '' };
+  return S.captainData.tasks[regNo] || {title:'',priority:'medium',dueDate:'',status:'pending',remarks:''};
 }
-
-function setTask(regNo, taskObj) {
-  State.captainData.tasks[regNo] = taskObj;
+function setTask(regNo, obj) {
+  if(!requireCaptain('Task assignment')) return; // hard guard
+  S.captainData.tasks[regNo] = obj;
   saveCaptainData();
 }
 
 function assignBulkTask() {
-  const title = document.getElementById('bulkTaskTitle').value.trim();
+  if(!requireCaptain('Bulk assign')) return;
+  const title = (document.getElementById('bulkTaskTitle').value||'').trim();
+  if(!title) { showToast('Enter a task title','warning'); return; }
   const priority = document.getElementById('bulkPriority').value;
-  const dueDate = document.getElementById('bulkDueDate').value;
-  if (!title) { showToast('Enter a task title', 'warning'); return; }
-  State.members.forEach(m => {
-    setTask(m.regNo, { title, priority, dueDate, status: 'pending', remarks: '' });
+  const dueDate  = document.getElementById('bulkDueDate').value;
+  S.members.forEach(m => {
+    S.captainData.tasks[m.regNo] = {title, priority, dueDate, status:'pending', remarks:''};
   });
+  saveCaptainData();
   updateTaskOverview();
   renderTaskTable();
-  showToast(`Task assigned to all ${State.members.length} members`, 'success');
+  showToast(`Task assigned to all ${S.members.length} members`, 'success');
 }
 
 function exportTasks() {
-  const data = { venue: State.captainData.venue, tasks: State.captainData.tasks, exportedAt: new Date().toISOString() };
-  const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+  if(!requireCaptain('Export')) return;
+  const blob = new Blob([JSON.stringify({
+    venue: S.captainData.venue, tasks: S.captainData.tasks, exportedAt: new Date().toISOString()
+  }, null, 2)], {type:'application/json'});
   const a = document.createElement('a');
   a.href = URL.createObjectURL(blob);
-  a.download = 'nexus_task_data.json';
+  a.download = 'nexus_tasks.json';
   a.click();
-  showToast('Task data exported as JSON', 'success');
+  showToast('Exported successfully','success');
 }
 
-function resetTasks() {
-  if (!confirm('Reset ALL captain data? This cannot be undone.')) return;
-  State.captainData = { venue: '', tasks: {} };
+function resetAllTasks() {
+  if(!requireCaptain('Reset')) return;
+  if(!confirm('Reset ALL captain data (venue + tasks)? This cannot be undone.')) return;
+  S.captainData = {venue:'',tasks:{}};
   saveCaptainData();
   updateVenueDisplay();
   updateTaskOverview();
   renderTaskTable();
-  showToast('All captain data reset', 'warning');
+  showToast('All captain data cleared','warning');
+}
+
+function markDone(regNo) {
+  if(!requireCaptain('Mark done')) return;
+  const t = getTask(regNo); t.status='completed';
+  S.captainData.tasks[regNo] = t; saveCaptainData();
+  updateTaskOverview(); renderTaskTable();
+  showToast('Marked as completed','success');
 }
 
 function updateTaskOverview() {
-  const allTasks = Object.values(State.captainData.tasks);
-  const total = State.members.length;
-  const completed = allTasks.filter(t => t.status === 'completed').length;
-  const pending = allTasks.filter(t => t.status === 'pending' || t.status === 'in-progress').length;
-  const high = allTasks.filter(t => t.priority === 'high').length;
-  document.getElementById('tobAllNum').textContent = total;
-  document.getElementById('tobPendNum').textContent = pending;
-  document.getElementById('tobCompNum').textContent = completed;
-  document.getElementById('tobHighNum').textContent = high;
+  const all = Object.values(S.captainData.tasks);
+  document.getElementById('tobAllNum') .textContent = S.members.length;
+  document.getElementById('tobPendNum').textContent = all.filter(t=>t.status==='pending'||t.status==='in-progress').length;
+  document.getElementById('tobCompNum').textContent = all.filter(t=>t.status==='completed').length;
+  document.getElementById('tobHighNum').textContent = all.filter(t=>t.priority==='high').length;
 }
 
-// ═══════════════════════════════════════════
+// ═══════════════════════════════════════════════════════════════
 // RENDER ALL
-// ═══════════════════════════════════════════
+// ═══════════════════════════════════════════════════════════════
 function renderAll() {
   renderSummaryCards();
   populateFilters();
-  renderMemberCards(State.members);
-  renderMemberTable(State.members);
+  renderMemberCards(S.members);
+  renderMemberTable(S.members);
   renderEventsSection();
   renderAttendanceTable();
   renderDashboardCharts();
   renderRecentActivity();
+  updateVenueDisplay();
+  updateTaskOverview();
 }
 
-// ═══════════════════════════════════════════
-// SUMMARY CARDS
-// ═══════════════════════════════════════════
+// ── Summary cards ─────────────────────────────────────────────────
 function renderSummaryCards() {
-  const m = State.members;
-  document.getElementById('sc-total').textContent = m.length;
-  const depts = new Set(m.map(x => x.dept)).size;
-  document.getElementById('sc-depts').textContent = depts;
-  const totalEvents = m.reduce((a, x) => a + (x.eventsAttended || 0), 0);
-  document.getElementById('sc-events').textContent = totalEvents;
-  const totalWon = m.reduce((a, x) => a + (x.eventsWon || 0), 0);
-  document.getElementById('sc-won').textContent = totalWon;
-  const withArrears = m.filter(x => (x.arrears || 0) > 0).length;
-  document.getElementById('sc-arrears').textContent = withArrears;
-  const avgCgpa = m.length ? (m.reduce((a, x) => a + (x.cgpa || 0), 0) / m.length).toFixed(2) : '--';
-  document.getElementById('sc-cgpa').textContent = avgCgpa;
+  const m = S.members;
+  document.getElementById('sc-total')  .textContent = m.length;
+  document.getElementById('sc-depts')  .textContent = new Set(m.map(x=>x.dept)).size;
+  document.getElementById('sc-events') .textContent = m.reduce((a,x)=>a+(x.eventsAttended||0),0);
+  document.getElementById('sc-won')    .textContent = m.reduce((a,x)=>a+(x.eventsWon||0),0);
+  document.getElementById('sc-arrears').textContent = m.filter(x=>(x.arrears||0)>0).length;
+  document.getElementById('sc-cgpa')   .textContent = m.length ? (m.reduce((a,x)=>a+(x.cgpa||0),0)/m.length).toFixed(2) : '--';
 }
 
-// ═══════════════════════════════════════════
-// FILTERS & SEARCH
-// ═══════════════════════════════════════════
+// ── Filters & search ──────────────────────────────────────────────
 function populateFilters() {
-  const depts = [...new Set(State.members.map(m => m.dept).filter(Boolean))].sort();
-  const roles = [...new Set(State.members.map(m => m.role).filter(Boolean))].sort();
-  const deptSel = document.getElementById('filterDept');
-  const roleSel = document.getElementById('filterRole');
-  deptSel.innerHTML = '<option value="">All Departments</option>' + depts.map(d => `<option value="${d}">${d}</option>`).join('');
-  roleSel.innerHTML = '<option value="">All Roles</option>' + roles.map(r => `<option value="${r}">${r}</option>`).join('');
+  const ds = [...new Set(S.members.map(m=>m.dept).filter(Boolean))].sort();
+  const rs = [...new Set(S.members.map(m=>m.role).filter(Boolean))].sort();
+  document.getElementById('filterDept').innerHTML = '<option value="">All Departments</option>'
+    + ds.map(d=>`<option value="${d}">${d}</option>`).join('');
+  document.getElementById('filterRole').innerHTML = '<option value="">All Roles</option>'
+    + rs.map(r=>`<option value="${r}">${r}</option>`).join('');
 }
 
 function applyFilters() {
-  const q = document.getElementById('searchInput').value.toLowerCase();
-  const dept = document.getElementById('filterDept').value;
-  const role = document.getElementById('filterRole').value;
+  const q  = document.getElementById('searchInput').value.toLowerCase();
+  const d  = document.getElementById('filterDept').value;
+  const r  = document.getElementById('filterRole').value;
   const sort = document.getElementById('sortBy').value;
 
-  let result = State.members.filter(m => {
-    const matchQ = !q || m.name.toLowerCase().includes(q) || m.regNo.toLowerCase().includes(q) || (m.dept || '').toLowerCase().includes(q) || (m.role || '').toLowerCase().includes(q);
-    const matchDept = !dept || m.dept === dept;
-    const matchRole = !role || m.role === role;
-    return matchQ && matchDept && matchRole;
+  let res = S.members.filter(m => {
+    const mq = !q || m.name.toLowerCase().includes(q)
+                  || m.regNo.toLowerCase().includes(q)
+                  || (m.dept||'').toLowerCase().includes(q)
+                  || (m.role||'').toLowerCase().includes(q);
+    return mq && (!d||m.dept===d) && (!r||m.role===r);
   });
 
-  if (sort) {
-    result.sort((a, b) => {
-      if (sort === 'name') return (a.name || '').localeCompare(b.name || '');
-      const aPs = a.ps || {}; const bPs = b.ps || {};
-      const map = {
-        cgpa: [b.cgpa, a.cgpa],
-        rewardPts: [bPs.rewardPts || 0, aPs.rewardPts || 0],
-        activityPts: [bPs.activityPts || 0, aPs.activityPts || 0],
-        eventsAttended: [b.eventsAttended || 0, a.eventsAttended || 0],
-      };
-      return (map[sort] || [0,0])[0] - (map[sort] || [0,0])[1];
-    });
-  }
+  if(sort) res.sort((a,b) => {
+    if(sort==='name') return (a.name||'').localeCompare(b.name||'');
+    const map = { cgpa:[b.cgpa,a.cgpa], rewardPts:[(b.ps?.rewardPts||0),(a.ps?.rewardPts||0)],
+                  activityPts:[(b.ps?.activityPts||0),(a.ps?.activityPts||0)], eventsAttended:[b.eventsAttended||0,a.eventsAttended||0] };
+    return (map[sort]||[0,0])[0] - (map[sort]||[0,0])[1];
+  });
 
-  State.filteredMembers = result;
-  document.getElementById('filterCount').textContent = `Showing ${result.length} of ${State.members.length} members`;
-  renderMemberCards(result);
-  renderMemberTable(result);
+  S.filteredMembers = res;
+  document.getElementById('filterCount').textContent = `Showing ${res.length} of ${S.members.length} members`;
+  renderMemberCards(res);
+  renderMemberTable(res);
 }
-
 function clearFilters() {
   document.getElementById('searchInput').value = '';
-  document.getElementById('filterDept').value = '';
-  document.getElementById('filterRole').value = '';
-  document.getElementById('sortBy').value = '';
+  document.getElementById('filterDept').value  = '';
+  document.getElementById('filterRole').value  = '';
+  document.getElementById('sortBy').value      = '';
   applyFilters();
 }
 
-// ═══════════════════════════════════════════
-// MEMBER CARDS
-// ═══════════════════════════════════════════
-function getRoleBadgeClass(role) {
-  const r = (role || '').toLowerCase();
-  if (r.includes('captain') && r.includes('vice')) return 'badge-vice-captain';
-  if (r.includes('captain')) return 'badge-captain';
-  if (r.includes('strategist')) return 'badge-strategist';
-  if (r.includes('mentor')) return 'badge-mentor';
+// ── Role badge class ───────────────────────────────────────────────
+function badgeClass(role='') {
+  const r = role.toLowerCase();
+  if(r.includes('captain')&&!r.includes('vice')) return 'badge-captain';
+  if(r.includes('vice'))                          return 'badge-vice-captain';
+  if(r.includes('strategist'))                    return 'badge-strategist';
+  if(r.includes('mentor'))                        return 'badge-mentor';
   return 'badge-member';
 }
 
+// ── Member cards ──────────────────────────────────────────────────
 function renderMemberCards(members) {
   const grid = document.getElementById('membersGrid');
-  if (!members.length) { grid.innerHTML = '<p class="empty-state">No members match your search.</p>'; return; }
-
+  if(!members.length) { grid.innerHTML='<p class="empty-state">No members match your search.</p>'; return; }
   grid.innerHTML = members.map(m => {
-    const initials = (m.name || '--').split(' ').map(w => w[0]).slice(0, 2).join('').toUpperCase();
-    const skills = m.skills || {};
-    const skillTags = [skills.primary1, skills.primary2].filter(s => s && s !== 'N/A').slice(0, 2).map(s => `<span class="skill-tag">${s}</span>`).join('');
-    const ps = m.ps || {};
+    const ini = (m.name||'--').split(' ').map(w=>w[0]).slice(0,2).join('').toUpperCase();
+    const sk  = m.skills||{};
+    const tags = [sk.primary1,sk.primary2].filter(s=>s&&s!=='N/A').map(s=>`<span class="skill-tag">${s}</span>`).join('');
     const task = getTask(m.regNo);
-    const taskBadge = State.mode === 'captain' && task.title ? `<span class="skill-tag" style="color:var(--gold);border-color:rgba(255,215,0,0.3)">${task.status.toUpperCase()}</span>` : '';
+    const taskBadge = S.mode==='captain' && task.title
+      ? `<span class="skill-tag" style="color:var(--gold);border-color:rgba(255,215,0,.3)">${task.status.toUpperCase()}</span>` : '';
     return `
     <div class="member-card" onclick="openMemberModal('${m.regNo}')">
       <div class="mc-top">
-        <div class="mc-avatar">${initials}</div>
-        <div>
-          <div class="mc-name">${m.name || 'Unknown'}</div>
-          <div class="mc-reg">${m.regNo}</div>
-        </div>
+        <div class="mc-avatar">${ini}</div>
+        <div><div class="mc-name">${m.name||'Unknown'}</div><div class="mc-reg">${m.regNo}</div></div>
       </div>
       <div class="mc-details">
-        <div class="mc-detail"><span class="mc-detail-label">DEPT</span><span class="mc-detail-val">${m.dept || 'N/A'}</span></div>
-        <div class="mc-detail"><span class="mc-detail-label">CGPA</span><span class="mc-detail-val">${m.cgpa || 'N/A'}</span></div>
-        <div class="mc-detail"><span class="mc-detail-label">EVENTS WON</span><span class="mc-detail-val">${m.eventsWon || 0}</span></div>
-        <div class="mc-detail"><span class="mc-detail-label">REWARD PTS</span><span class="mc-detail-val">${ps.rewardPts || 0}</span></div>
+        <div class="mc-detail"><span class="mc-detail-label">DEPT</span><span class="mc-detail-val">${m.dept||'N/A'}</span></div>
+        <div class="mc-detail"><span class="mc-detail-label">CGPA</span><span class="mc-detail-val">${m.cgpa||'N/A'}</span></div>
+        <div class="mc-detail"><span class="mc-detail-label">EVENTS WON</span><span class="mc-detail-val">${m.eventsWon||0}</span></div>
+        <div class="mc-detail"><span class="mc-detail-label">REWARD PTS</span><span class="mc-detail-val">${m.ps?.rewardPts||0}</span></div>
       </div>
       <div class="mc-footer">
-        <span class="role-badge ${getRoleBadgeClass(m.role)}">${m.role || 'Member'}</span>
-        ${skillTags}
-        ${taskBadge}
+        <span class="role-badge ${badgeClass(m.role)}">${m.role||'Member'}</span>
+        ${tags} ${taskBadge}
       </div>
     </div>`;
   }).join('');
 }
 
+// ── Member table ──────────────────────────────────────────────────
 function renderMemberTable(members) {
-  const head = document.getElementById('tableHead');
-  const body = document.getElementById('tableBody');
-  head.innerHTML = `<tr><th>#</th><th>NAME</th><th>REG. NO.</th><th>DEPT</th><th>ROLE</th><th>CGPA</th><th>ARREARS</th><th>EVENTS WON</th><th>REWARD PTS</th></tr>`;
-  body.innerHTML = members.length ? members.map((m, i) => `
-    <tr onclick="openMemberModal('${m.regNo}')">
-      <td>${i + 1}</td>
-      <td><strong>${m.name || 'N/A'}</strong></td>
-      <td style="font-family:var(--font-mono);font-size:11px;color:var(--cyan)">${m.regNo}</td>
-      <td>${m.dept || 'N/A'}</td>
-      <td><span class="role-badge ${getRoleBadgeClass(m.role)}" style="font-size:9px">${m.role || 'Member'}</span></td>
-      <td style="color:var(--green)">${m.cgpa || 'N/A'}</td>
-      <td style="color:${(m.arrears || 0) > 0 ? 'var(--red)' : 'var(--text-secondary)'}">${m.arrears || 0}</td>
-      <td>${m.eventsWon || 0}</td>
-      <td style="color:var(--gold)">${(m.ps || {}).rewardPts || 0}</td>
-    </tr>`).join('') : `<tr><td colspan="9" class="empty-td">No members found.</td></tr>`;
+  document.getElementById('tableHead').innerHTML = `<tr>
+    <th>#</th><th>NAME</th><th>REG. NO.</th><th>DEPT</th><th>ROLE</th>
+    <th>CGPA</th><th>ARREARS</th><th>EVENTS WON</th><th>REWARD PTS</th>
+  </tr>`;
+  document.getElementById('tableBody').innerHTML = members.length
+    ? members.map((m,i) => `<tr onclick="openMemberModal('${m.regNo}')">
+        <td>${i+1}</td>
+        <td><strong>${m.name||'N/A'}</strong></td>
+        <td style="font-family:var(--font-mono);font-size:11px;color:var(--cyan)">${m.regNo}</td>
+        <td>${m.dept||'N/A'}</td>
+        <td><span class="role-badge ${badgeClass(m.role)}" style="font-size:9px">${m.role||'Member'}</span></td>
+        <td style="color:var(--green)">${m.cgpa||'N/A'}</td>
+        <td style="color:${(m.arrears||0)>0?'var(--red)':'var(--text-secondary)'}">${m.arrears||0}</td>
+        <td>${m.eventsWon||0}</td>
+        <td style="color:var(--gold)">${m.ps?.rewardPts||0}</td>
+      </tr>`).join('')
+    : '<tr><td colspan="9" class="empty-td">No members found.</td></tr>';
 }
 
 function setView(mode) {
-  document.getElementById('membersGrid').classList.toggle('hidden', mode !== 'card');
-  document.getElementById('membersTable').classList.toggle('hidden', mode !== 'table');
-  document.getElementById('viewCard').classList.toggle('active', mode === 'card');
-  document.getElementById('viewTable').classList.toggle('active', mode === 'table');
+  document.getElementById('membersGrid') .classList.toggle('hidden', mode!=='card');
+  document.getElementById('membersTable').classList.toggle('hidden', mode!=='table');
+  document.getElementById('viewCard')    .classList.toggle('active', mode==='card');
+  document.getElementById('viewTable')   .classList.toggle('active', mode==='table');
 }
 
-// ═══════════════════════════════════════════
-// EVENTS SECTION
-// ═══════════════════════════════════════════
+// ── Events section ────────────────────────────────────────────────
 function renderEventsSection() {
   const grid = document.getElementById('eventsGrid');
-  if (!State.events.length) return;
-  grid.innerHTML = State.events.map(ev => `
+  if(!S.events.length) { grid.innerHTML='<p class="empty-state">No events data found in sheet.</p>'; return; }
+  grid.innerHTML = S.events.map(ev => `
     <div class="event-card">
-      <div class="event-name">${ev.name || 'Unknown Event'}</div>
-      <div class="event-meta">📅 ${ev.monthYear || 'N/A'} &nbsp;|&nbsp; 🏛 ${ev.host || 'N/A'}</div>
-      <span class="event-type">${ev.type || 'General'}</span>
+      <div class="event-name">${ev.name||'—'}</div>
+      <div class="event-meta">📅 ${ev.monthYear||'N/A'} &nbsp;|&nbsp; 🏛 ${ev.host||'N/A'}</div>
+      <span class="event-type">${ev.type||'General'}</span>
     </div>`).join('');
 }
 
-// ═══════════════════════════════════════════
-// ATTENDANCE TABLE
-// ═══════════════════════════════════════════
+// ── Attendance table ──────────────────────────────────────────────
 function renderAttendanceTable() {
   const body = document.getElementById('attendanceBody');
-  if (!State.attendance.length) return;
-  body.innerHTML = State.attendance.map(a => `
-    <tr>
-      <td>${a.date}</td>
-      <td style="font-family:var(--font-mono);color:var(--cyan)">${a.regNo}</td>
-      <td>${a.name}</td>
-      <td style="font-size:11px">${a.mail}</td>
-      <td style="color:var(--red)">${a.missedHour}</td>
-    </tr>`).join('');
+  if(!S.attendance.length) { body.innerHTML='<tr><td colspan="5" class="empty-td">No attendance data in sheet.</td></tr>'; return; }
+  body.innerHTML = S.attendance.map(a => `<tr>
+    <td>${a.date}</td>
+    <td style="font-family:var(--font-mono);color:var(--cyan)">${a.regNo}</td>
+    <td>${a.name}</td>
+    <td style="font-size:11px">${a.mail}</td>
+    <td style="color:var(--red)">${a.missedHour}</td>
+  </tr>`).join('');
 }
 
-// ═══════════════════════════════════════════
-// TASK TABLE (Captain Panel)
-// ═══════════════════════════════════════════
+// ── Task table (captain panel) ────────────────────────────────────
 function renderTaskTable() {
-  const body = document.getElementById('taskTableBody');
-  const q = (document.getElementById('taskSearchInput').value || '').toLowerCase();
-  const statusF = document.getElementById('taskStatusFilter').value;
-  const tF = State.taskFilter;
+  const q      = (document.getElementById('taskSearchInput').value||'').toLowerCase();
+  const sF     = document.getElementById('taskStatusFilter').value;
+  const tF     = S.taskFilter;
+  const body   = document.getElementById('taskTableBody');
 
-  let members = State.members.filter(m => {
-    const task = getTask(m.regNo);
-    const matchQ = !q || m.name.toLowerCase().includes(q) || m.regNo.toLowerCase().includes(q);
-    const matchStatus = !statusF || task.status === statusF;
-    const matchFilter = tF === 'all' ? true : tF === 'pending' ? (task.status === 'pending' || task.status === 'in-progress') : tF === 'completed' ? task.status === 'completed' : tF === 'high' ? task.priority === 'high' : true;
-    return matchQ && matchStatus && matchFilter;
+  const members = S.members.filter(m => {
+    const t = getTask(m.regNo);
+    const mq      = !q || m.name.toLowerCase().includes(q) || m.regNo.toLowerCase().includes(q);
+    const ms      = !sF || t.status===sF;
+    const mt      = tF==='all' ? true
+                  : tF==='pending'   ? (t.status==='pending'||t.status==='in-progress')
+                  : tF==='completed' ? t.status==='completed'
+                  : tF==='high'      ? t.priority==='high' : true;
+    return mq && ms && mt;
   });
 
   body.innerHTML = members.length ? members.map(m => {
@@ -934,373 +709,195 @@ function renderTaskTable() {
     return `<tr>
       <td><strong>${m.name}</strong></td>
       <td style="font-family:var(--font-mono);font-size:10px;color:var(--cyan)">${m.regNo}</td>
-      <td>${t.title || '<span style="color:var(--text-muted)">Unassigned</span>'}</td>
-      <td><span class="priority-${t.priority || 'medium'}">${(t.priority || 'medium').toUpperCase()}</span></td>
-      <td style="font-size:11px;font-family:var(--font-mono)">${t.dueDate || '--'}</td>
-      <td><span class="status-${t.status || 'pending'}">${(t.status || 'pending').replace('-', ' ').toUpperCase()}</span></td>
-      <td style="font-size:11px;max-width:120px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${t.remarks || ''}">${t.remarks || '--'}</td>
-      <td>
-        <button class="btn-xs" onclick="openMemberModal('${m.regNo}', 'tasks')">EDIT</button>
-        ${t.status !== 'completed' ? `<button class="btn-xs done" onclick="markDone('${m.regNo}')" style="margin-left:4px">✓ DONE</button>` : ''}
+      <td>${t.title||'<span style="color:var(--text-muted)">Unassigned</span>'}</td>
+      <td><span class="priority-${t.priority||'medium'}">${(t.priority||'medium').toUpperCase()}</span></td>
+      <td style="font-size:11px;font-family:var(--font-mono)">${t.dueDate||'—'}</td>
+      <td><span class="status-${t.status||'pending'}">${(t.status||'pending').replace('-',' ').toUpperCase()}</span></td>
+      <td style="font-size:11px;max-width:120px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${t.remarks||''}">${t.remarks||'—'}</td>
+      <td style="display:flex;gap:4px;flex-wrap:wrap">
+        <button class="btn-xs" onclick="openMemberModal('${m.regNo}','tasks')">EDIT</button>
+        ${t.status!=='completed'?`<button class="btn-xs done" onclick="markDone('${m.regNo}')">✓</button>`:''}
       </td>
     </tr>`;
-  }).join('') : `<tr><td colspan="8" class="empty-td">No tasks found.</td></tr>`;
+  }).join('') : '<tr><td colspan="8" class="empty-td">No tasks match the current filter.</td></tr>';
 }
 
-function markDone(regNo) {
-  const t = getTask(regNo);
-  t.status = 'completed';
-  setTask(regNo, t);
-  updateTaskOverview();
-  renderTaskTable();
-  showToast('Task marked as completed', 'success');
+// ── Recent activity ───────────────────────────────────────────────
+function renderRecentActivity() {
+  const m = S.members;
+  const items = [
+    `${m.length} team members loaded from Google Sheets`,
+    `${S.events.length} events in the log`,
+    `${m.filter(x=>(x.ps?.mandatoryCompletion||'')===  'Yes').length} members completed Mandatory PS`,
+    `${S.attendance.length} missed attendance records`,
+    `Average CGPA: ${m.length?(m.reduce((a,x)=>a+(x.cgpa||0),0)/m.length).toFixed(2):'N/A'}`,
+  ];
+  document.getElementById('recentList').innerHTML = items.map(it =>
+    `<div class="recent-item"><div class="recent-dot"></div>${it}</div>`
+  ).join('');
 }
 
-// ═══════════════════════════════════════════
+// ═══════════════════════════════════════════════════════════════
 // MEMBER MODAL
-// ═══════════════════════════════════════════
-function openMemberModal(regNo, defaultTab = 'profile') {
-  const m = State.members.find(x => x.regNo === regNo);
-  if (!m) return;
-  State.currentViewMember = m;
+// ═══════════════════════════════════════════════════════════════
+function openMemberModal(regNo, defaultTab='profile') {
+  const m = S.members.find(x=>x.regNo===regNo); if(!m) return;
+  S.currentMember = m;
 
-  const initials = (m.name || '--').split(' ').map(w => w[0]).slice(0, 2).join('').toUpperCase();
-  document.getElementById('mmAvatar').textContent = initials;
-  document.getElementById('mmName').textContent = m.name || 'Unknown';
-  document.getElementById('mmReg').textContent = `REG: ${m.regNo}`;
+  const ini = (m.name||'--').split(' ').map(w=>w[0]).slice(0,2).join('').toUpperCase();
+  document.getElementById('mmAvatar').textContent   = ini;
+  document.getElementById('mmName').textContent      = m.name||'—';
+  document.getElementById('mmReg').textContent       = `REG: ${m.regNo}`;
   const rb = document.getElementById('mmRoleBadge');
-  rb.textContent = m.role || 'Member';
-  rb.className = `role-badge ${getRoleBadgeClass(m.role)}`;
+  rb.textContent = m.role||'Member'; rb.className = `role-badge ${badgeClass(m.role)}`;
 
-  // Profile
-  renderModalProfile(m);
-  renderModalSkills(m);
-  renderModalPS(m);
-  renderModalEvents(m);
-  if (State.mode === 'captain') renderModalTask(m);
+  // Show/hide the Task tab based on mode
+  document.querySelectorAll('.mm-tab[data-tab="tasks"]').forEach(t=>t.classList.toggle('hidden', S.mode!=='captain'));
+
+  renderModalProfile(m); renderModalSkills(m); renderModalPS(m); renderModalEvents(m);
+  if(S.mode==='captain') renderModalTask(m);
 
   switchModalTab(defaultTab);
-
-  document.querySelectorAll('.mm-tab[data-tab="tasks"]').forEach(t => {
-    t.classList.toggle('hidden', State.mode !== 'captain');
-  });
-  document.getElementById('tab-tasks').classList.toggle('captain-only', State.mode !== 'captain');
-
   document.getElementById('memberModal').classList.remove('hidden');
 }
-
-function closeModal() {
-  document.getElementById('memberModal').classList.add('hidden');
-  State.currentViewMember = null;
-}
-
+function closeModal() { document.getElementById('memberModal').classList.add('hidden'); S.currentMember=null; }
 function switchModalTab(tab) {
-  document.querySelectorAll('.mm-tab').forEach(t => t.classList.toggle('active', t.dataset.tab === tab));
-  document.querySelectorAll('.mm-panel').forEach(p => p.classList.toggle('active', p.id === `tab-${tab}`));
+  document.querySelectorAll('.mm-tab')  .forEach(t=>t.classList.toggle('active',t.dataset.tab===tab));
+  document.querySelectorAll('.mm-panel').forEach(p=>p.classList.toggle('active',p.id===`tab-${tab}`));
 }
 
-function infoItem(label, val) {
-  return `<div class="info-item"><div class="info-label">${label}</div><div class="info-val">${val || 'N/A'}</div></div>`;
-}
+const II = (l,v) => `<div class="info-item"><div class="info-label">${l}</div><div class="info-val">${v||'N/A'}</div></div>`;
 
 function renderModalProfile(m) {
-  const cont = document.getElementById('profileInfo');
-  cont.innerHTML = [
-    infoItem('DEPARTMENT', m.dept),
-    infoItem('MOBILE', m.mobile),
-    infoItem('EMAIL', m.mail),
-    infoItem('CGPA', m.cgpa),
-    infoItem('ARREARS', m.arrears || 0),
-    infoItem('SPECIAL LAB', m.specialLab),
-    infoItem('SSG MEMBER', m.ssg),
-    infoItem('EVENTS ATTENDED', m.eventsAttended || 0),
-    infoItem('EVENTS WON', m.eventsWon || 0),
-    infoItem('FOREIGN LANGUAGE', m.foreignLang),
-    infoItem('MODE OF STUDY', m.modeOfStudy),
-    infoItem('CURRENT EVENTS', m.currentEvents || 'None'),
-    infoItem('VENUE', State.captainData.venue || 'Not Set'),
+  document.getElementById('profileInfo').innerHTML = [
+    II('DEPARTMENT',m.dept), II('MOBILE',m.mobile), II('EMAIL',m.mail),
+    II('CGPA',m.cgpa), II('ARREARS',m.arrears||0), II('SPECIAL LAB',m.specialLab),
+    II('SSG MEMBER',m.ssg), II('EVENTS ATTENDED',m.eventsAttended||0),
+    II('EVENTS WON',m.eventsWon||0), II('FOREIGN LANGUAGE',m.foreignLang),
+    II('MODE OF STUDY',m.modeOfStudy), II('CURRENT EVENTS',m.currentEvents||'None'),
+    II('TEAM VENUE', S.captainData.venue||'Not Set'),
   ].join('');
 }
-
 function renderModalSkills(m) {
-  const s = m.skills || {};
-  const cont = document.getElementById('skillsDisplay');
-  const chip = (label, cls) => label && label !== 'N/A' ? `<span class="skill-chip ${cls}">${label}</span>` : '';
-  cont.innerHTML = `
-    <div class="skill-label">PRIMARY SKILLS</div>
-    ${chip(s.primary1, 'skill-primary')} ${chip(s.primary2, 'skill-primary')}
-    <div class="skill-label">SECONDARY SKILLS</div>
-    ${chip(s.secondary1, 'skill-secondary')} ${chip(s.secondary2, 'skill-secondary')}
-    <div class="skill-label">SPECIALIZATION</div>
-    ${chip(s.spec1, 'skill-spec')} ${chip(s.spec2, 'skill-spec')}
-  `;
+  const s=m.skills||{};
+  const chip=(v,cls)=>v&&v!=='N/A'?`<span class="skill-chip ${cls}">${v}</span>`:'';
+  document.getElementById('skillsDisplay').innerHTML=`
+    <div class="skill-label">PRIMARY</div>${chip(s.primary1,'skill-primary')}${chip(s.primary2,'skill-primary')}
+    <div class="skill-label">SECONDARY</div>${chip(s.secondary1,'skill-secondary')}${chip(s.secondary2,'skill-secondary')}
+    <div class="skill-label">SPECIALIZATION</div>${chip(s.spec1,'skill-spec')}${chip(s.spec2,'skill-spec')}`;
 }
-
 function renderModalPS(m) {
-  const ps = m.ps || {};
-  const pct = ps.weeklyAttempts ? Math.round((ps.weeklyCleared / ps.weeklyAttempts) * 100) : 0;
-  document.getElementById('psDisplay').innerHTML = `
-    <div class="info-grid">
-      ${infoItem('REWARD POINTS', ps.rewardPts || 0)}
-      ${infoItem('ACTIVITY POINTS', ps.activityPts || 0)}
-      ${infoItem('MANDATORY COMPLETION', ps.mandatoryCompletion || 'N/A')}
-      ${infoItem('WEEKLY ATTEMPTS', ps.weeklyAttempts || 0)}
-      ${infoItem('WEEKLY CLEARED', ps.weeklyCleared || 0)}
-    </div>
-    <div class="skill-label">PS COMPLETION RATE</div>
+  const ps=m.ps||{}, pct=ps.weeklyAttempts?Math.round(ps.weeklyCleared/ps.weeklyAttempts*100):0;
+  document.getElementById('psDisplay').innerHTML=`
+    <div class="info-grid">${II('REWARD PTS',ps.rewardPts||0)}${II('ACTIVITY PTS',ps.activityPts||0)}${II('MANDATORY',ps.mandatoryCompletion||'N/A')}${II('ATTEMPTS',ps.weeklyAttempts||0)}${II('CLEARED',ps.weeklyCleared||0)}</div>
+    <div class="skill-label">COMPLETION RATE</div>
     <div style="display:flex;align-items:center;gap:12px;margin-top:4px">
       <div class="ps-progress" style="flex:1"><div class="ps-bar" style="width:${pct}%"></div></div>
-      <span style="font-family:var(--font-mono);color:var(--cyan);font-size:13px">${pct}%</span>
-    </div>
-  `;
+      <span style="font-family:var(--font-mono);color:var(--cyan)">${pct}%</span>
+    </div>`;
 }
-
 function renderModalEvents(m) {
-  const events = State.events.filter(() => true); // all events for now
-  const attended = (m.currentEvents || '').split(',').map(s => s.trim()).filter(Boolean);
-  const miss = State.attendance.filter(a => a.regNo === m.regNo);
-  let html = '';
-  if (attended.length) {
-    html += `<div class="skill-label">REGISTERED EVENTS</div><div style="display:flex;flex-wrap:wrap;gap:8px;margin-bottom:16px">` +
-      attended.map(e => `<span class="event-type">${e}</span>`).join('') + `</div>`;
-  }
-  html += `<div class="skill-label">PARTICIPATION STATS</div>`;
-  html += `<div class="info-grid">${infoItem('EVENTS ATTENDED', m.eventsAttended || 0)}${infoItem('EVENTS WON', m.eventsWon || 0)}</div>`;
-  if (miss.length) {
-    html += `<div class="skill-label">MISSED ATTENDANCE</div><div class="table-wrap"><table class="data-table"><thead><tr><th>DATE</th><th>MISSED HRS</th></tr></thead><tbody>` +
-      miss.map(a => `<tr><td>${a.date}</td><td style="color:var(--red)">${a.missedHour}</td></tr>`).join('') + `</tbody></table></div>`;
-  }
-  document.getElementById('eventsDisplay').innerHTML = html || '<p class="empty-state">No event data available.</p>';
+  const att=(m.currentEvents||'').split(',').map(s=>s.trim()).filter(Boolean);
+  const miss=S.attendance.filter(a=>a.regNo===m.regNo);
+  let h=att.length?`<div class="skill-label">REGISTERED</div><div style="display:flex;flex-wrap:wrap;gap:8px;margin-bottom:16px">${att.map(e=>`<span class="event-type">${e}</span>`).join('')}</div>`:'';
+  h+=`<div class="skill-label">STATS</div><div class="info-grid">${II('ATTENDED',m.eventsAttended||0)}${II('WON',m.eventsWon||0)}</div>`;
+  if(miss.length) h+=`<div class="skill-label">MISSED SESSIONS</div><div class="table-wrap"><table class="data-table"><thead><tr><th>DATE</th><th>HRS</th></tr></thead><tbody>${miss.map(a=>`<tr><td>${a.date}</td><td style="color:var(--red)">${a.missedHour}</td></tr>`).join('')}</tbody></table></div>`;
+  document.getElementById('eventsDisplay').innerHTML=h||'<p class="empty-state">No event data.</p>';
 }
-
 function renderModalTask(m) {
-  const t = getTask(m.regNo);
-  document.getElementById('mmTaskTitle').value = t.title || '';
-  document.getElementById('mmPriority').value = t.priority || 'medium';
-  document.getElementById('mmDueDate').value = t.dueDate || '';
-  document.getElementById('mmStatus').value = t.status || 'pending';
-  document.getElementById('mmRemarks').value = t.remarks || '';
+  // Only rendered when captain — no need for extra guard
+  const t=getTask(m.regNo);
+  document.getElementById('mmTaskTitle').value = t.title||'';
+  document.getElementById('mmPriority') .value = t.priority||'medium';
+  document.getElementById('mmDueDate')  .value = t.dueDate||'';
+  document.getElementById('mmStatus')   .value = t.status||'pending';
+  document.getElementById('mmRemarks')  .value = t.remarks||'';
 }
-
 function saveModalTask() {
-  const m = State.currentViewMember;
-  if (!m) return;
-  const task = {
-    title: document.getElementById('mmTaskTitle').value.trim(),
+  if(!requireCaptain('Save task')) return; // hard guard
+  const m=S.currentMember; if(!m) return;
+  S.captainData.tasks[m.regNo] = {
+    title   : document.getElementById('mmTaskTitle').value.trim(),
     priority: document.getElementById('mmPriority').value,
-    dueDate: document.getElementById('mmDueDate').value,
-    status: document.getElementById('mmStatus').value,
-    remarks: document.getElementById('mmRemarks').value.trim(),
+    dueDate : document.getElementById('mmDueDate').value,
+    status  : document.getElementById('mmStatus').value,
+    remarks : document.getElementById('mmRemarks').value.trim(),
   };
-  setTask(m.regNo, task);
-  updateTaskOverview();
-  renderTaskTable();
-  renderMemberCards(State.filteredMembers);
+  saveCaptainData();
+  updateTaskOverview(); renderTaskTable(); renderMemberCards(S.filteredMembers);
   showToast(`Task saved for ${m.name}`, 'success');
 }
 
-// ═══════════════════════════════════════════
-// DASHBOARD CHARTS
-// ═══════════════════════════════════════════
-const NEON_COLORS = [
-  '#00d4ff', '#7c3aed', '#00ff88', '#ffd700',
-  '#ff3366', '#4488ff', '#ff8c00', '#00ffcc',
-];
-
-function destroyChart(key) {
-  if (State.charts[key]) { State.charts[key].destroy(); delete State.charts[key]; }
-}
-
-const chartDefaults = {
-  plugins: {
-    legend: { labels: { color: '#8aa8cc', font: { family: 'Share Tech Mono', size: 10 } } },
-  },
-  scales: {
-    x: { ticks: { color: '#8aa8cc', font: { family: 'Share Tech Mono', size: 10 } }, grid: { color: 'rgba(0,212,255,0.05)' } },
-    y: { ticks: { color: '#8aa8cc', font: { family: 'Share Tech Mono', size: 10 } }, grid: { color: 'rgba(0,212,255,0.05)' } },
-  },
+// ═══════════════════════════════════════════════════════════════
+// CHARTS
+// ═══════════════════════════════════════════════════════════════
+const NC = ['#00d4ff','#7c3aed','#00ff88','#ffd700','#ff3366','#4488ff','#ff8c00','#00ffcc'];
+const dChart = k => { if(S.charts[k]){S.charts[k].destroy();delete S.charts[k];} };
+const CD = {
+  plugins:{legend:{labels:{color:'#8aa8cc',font:{family:'Share Tech Mono',size:10}}}},
+  scales:{
+    x:{ticks:{color:'#8aa8cc',font:{family:'Share Tech Mono',size:10}},grid:{color:'rgba(0,212,255,.05)'}},
+    y:{ticks:{color:'#8aa8cc',font:{family:'Share Tech Mono',size:10}},grid:{color:'rgba(0,212,255,.05)'}},
+  }
 };
 
 function renderDashboardCharts() {
-  const members = State.members;
-
-  // Dept chart
-  const deptCount = {};
-  members.forEach(m => { deptCount[m.dept || 'N/A'] = (deptCount[m.dept || 'N/A'] || 0) + 1; });
-  destroyChart('dept');
-  const dCtx = document.getElementById('deptChart');
-  if (dCtx) {
-    State.charts.dept = new Chart(dCtx, {
-      type: 'doughnut',
-      data: {
-        labels: Object.keys(deptCount),
-        datasets: [{ data: Object.values(deptCount), backgroundColor: NEON_COLORS.map(c => c + '99'), borderColor: NEON_COLORS, borderWidth: 1 }],
-      },
-      options: { plugins: { legend: { labels: { color: '#8aa8cc', font: { family: 'Share Tech Mono', size: 10 } } } }, cutout: '60%' },
-    });
-  }
-
-  // Role chart
-  const roleCount = {};
-  members.forEach(m => { roleCount[m.role || 'Member'] = (roleCount[m.role || 'Member'] || 0) + 1; });
-  destroyChart('role');
-  const rCtx = document.getElementById('roleChart');
-  if (rCtx) {
-    State.charts.role = new Chart(rCtx, {
-      type: 'pie',
-      data: {
-        labels: Object.keys(roleCount),
-        datasets: [{ data: Object.values(roleCount), backgroundColor: NEON_COLORS.map(c => c + '88'), borderColor: NEON_COLORS, borderWidth: 1 }],
-      },
-      options: { plugins: { legend: { labels: { color: '#8aa8cc', font: { family: 'Share Tech Mono', size: 10 } } } } },
-    });
-  }
-
-  // CGPA bar chart
-  const topMembers = [...members].sort((a, b) => (b.cgpa || 0) - (a.cgpa || 0)).slice(0, 8);
-  destroyChart('cgpa');
-  const cCtx = document.getElementById('cgpaChart');
-  if (cCtx) {
-    State.charts.cgpa = new Chart(cCtx, {
-      type: 'bar',
-      data: {
-        labels: topMembers.map(m => m.name.split(' ')[0]),
-        datasets: [{
-          label: 'CGPA',
-          data: topMembers.map(m => m.cgpa),
-          backgroundColor: NEON_COLORS[0] + '66',
-          borderColor: NEON_COLORS[0],
-          borderWidth: 1,
-        }],
-      },
-      options: { ...chartDefaults, plugins: { legend: { display: false } }, scales: { ...chartDefaults.scales, y: { ...chartDefaults.scales.y, min: 6, max: 10 } } },
-    });
-  }
+  const m = S.members;
+  // Dept doughnut
+  const dc={}; m.forEach(x=>{dc[x.dept||'N/A']=(dc[x.dept||'N/A']||0)+1;});
+  dChart('dept');
+  const dC=document.getElementById('deptChart');
+  if(dC) S.charts.dept=new Chart(dC,{type:'doughnut',data:{labels:Object.keys(dc),datasets:[{data:Object.values(dc),backgroundColor:NC.map(c=>c+'99'),borderColor:NC,borderWidth:1}]},options:{plugins:{legend:{labels:{color:'#8aa8cc',font:{family:'Share Tech Mono',size:10}}}},cutout:'60%'}});
+  // Role pie
+  const rc={}; m.forEach(x=>{rc[x.role||'Member']=(rc[x.role||'Member']||0)+1;});
+  dChart('role');
+  const rC=document.getElementById('roleChart');
+  if(rC) S.charts.role=new Chart(rC,{type:'pie',data:{labels:Object.keys(rc),datasets:[{data:Object.values(rc),backgroundColor:NC.map(c=>c+'88'),borderColor:NC,borderWidth:1}]},options:{plugins:{legend:{labels:{color:'#8aa8cc',font:{family:'Share Tech Mono',size:10}}}}}});
+  // Top CGPA bar
+  const top=[...m].sort((a,b)=>(b.cgpa||0)-(a.cgpa||0)).slice(0,8);
+  dChart('cgpa');
+  const cC=document.getElementById('cgpaChart');
+  if(cC) S.charts.cgpa=new Chart(cC,{type:'bar',data:{labels:top.map(x=>x.name.split(' ')[0]),datasets:[{label:'CGPA',data:top.map(x=>x.cgpa),backgroundColor:NC[0]+'66',borderColor:NC[0],borderWidth:1}]},options:{...CD,plugins:{legend:{display:false}},scales:{...CD.scales,y:{...CD.scales.y,min:0,max:10}}}});
 }
 
 function renderAnalyticsCharts() {
-  const members = State.members;
-
-  // Skill frequency
-  const skillCount = {};
-  members.forEach(m => {
-    const s = m.skills || {};
-    [s.primary1, s.primary2, s.secondary1, s.secondary2].forEach(sk => {
-      if (sk && sk !== 'N/A') skillCount[sk] = (skillCount[sk] || 0) + 1;
-    });
-  });
-  const top10 = Object.entries(skillCount).sort((a, b) => b[1] - a[1]).slice(0, 10);
-  destroyChart('skill');
-  const skCtx = document.getElementById('skillChart');
-  if (skCtx) {
-    State.charts.skill = new Chart(skCtx, {
-      type: 'bar',
-      data: {
-        labels: top10.map(x => x[0]),
-        datasets: [{ label: 'Members', data: top10.map(x => x[1]), backgroundColor: NEON_COLORS[2] + '66', borderColor: NEON_COLORS[2], borderWidth: 1 }],
-      },
-      options: { ...chartDefaults, indexAxis: 'y', plugins: { legend: { display: false } } },
-    });
-  }
-
+  const m = S.members;
+  // Skills frequency
+  const sc={}; m.forEach(x=>{const s=x.skills||{};[s.primary1,s.primary2,s.secondary1,s.secondary2].forEach(k=>{if(k&&k!=='N/A')sc[k]=(sc[k]||0)+1;});});
+  const t10=Object.entries(sc).sort((a,b)=>b[1]-a[1]).slice(0,10);
+  dChart('skill');
+  const skC=document.getElementById('skillChart');
+  if(skC) S.charts.skill=new Chart(skC,{type:'bar',data:{labels:t10.map(x=>x[0]),datasets:[{label:'Members',data:t10.map(x=>x[1]),backgroundColor:NC[2]+'66',borderColor:NC[2],borderWidth:1}]},options:{...CD,indexAxis:'y',plugins:{legend:{display:false}}}});
   // PS completion
-  const psYes = members.filter(m => (m.ps || {}).mandatoryCompletion === 'Yes').length;
-  const psNo = members.length - psYes;
-  destroyChart('ps');
-  const psCtx = document.getElementById('psChart');
-  if (psCtx) {
-    State.charts.ps = new Chart(psCtx, {
-      type: 'doughnut',
-      data: {
-        labels: ['Completed', 'Pending'],
-        datasets: [{ data: [psYes, psNo], backgroundColor: [NEON_COLORS[2] + '99', NEON_COLORS[4] + '99'], borderColor: [NEON_COLORS[2], NEON_COLORS[4]], borderWidth: 1 }],
-      },
-      options: { cutout: '65%', plugins: { legend: { labels: { color: '#8aa8cc', font: { family: 'Share Tech Mono', size: 10 } } } } },
-    });
-  }
-
+  const psY=m.filter(x=>(x.ps?.mandatoryCompletion||'')==='Yes').length;
+  dChart('ps');
+  const psC=document.getElementById('psChart');
+  if(psC) S.charts.ps=new Chart(psC,{type:'doughnut',data:{labels:['Completed','Pending'],datasets:[{data:[psY,m.length-psY],backgroundColor:[NC[2]+'99',NC[4]+'99'],borderColor:[NC[2],NC[4]],borderWidth:1}]},options:{cutout:'65%',plugins:{legend:{labels:{color:'#8aa8cc',font:{family:'Share Tech Mono',size:10}}}}}});
   // Task completion
-  const allTasks = Object.values(State.captainData.tasks || {});
-  const tc = { completed: allTasks.filter(t => t.status === 'completed').length, inProgress: allTasks.filter(t => t.status === 'in-progress').length, pending: allTasks.filter(t => t.status === 'pending').length, unassigned: members.length - allTasks.length };
-  destroyChart('task');
-  const tCtx = document.getElementById('taskChart');
-  if (tCtx) {
-    State.charts.task = new Chart(tCtx, {
-      type: 'doughnut',
-      data: {
-        labels: ['Completed', 'In Progress', 'Pending', 'Unassigned'],
-        datasets: [{ data: [tc.completed, tc.inProgress, tc.pending, tc.unassigned], backgroundColor: [NEON_COLORS[2]+'99', NEON_COLORS[0]+'99', NEON_COLORS[3]+'99', '#445566'], borderColor: [NEON_COLORS[2], NEON_COLORS[0], NEON_COLORS[3], '#667799'], borderWidth: 1 }],
-      },
-      options: { cutout: '65%', plugins: { legend: { labels: { color: '#8aa8cc', font: { family: 'Share Tech Mono', size: 10 } } } } },
-    });
-  }
-
+  const at=Object.values(S.captainData.tasks||{});
+  const tc={c:at.filter(t=>t.status==='completed').length,i:at.filter(t=>t.status==='in-progress').length,p:at.filter(t=>t.status==='pending').length,u:m.length-at.length};
+  dChart('task');
+  const tC=document.getElementById('taskChart');
+  if(tC) S.charts.task=new Chart(tC,{type:'doughnut',data:{labels:['Completed','In Progress','Pending','Unassigned'],datasets:[{data:[tc.c,tc.i,tc.p,tc.u],backgroundColor:[NC[2]+'99',NC[0]+'99',NC[3]+'99','#445566'],borderColor:[NC[2],NC[0],NC[3],'#667799'],borderWidth:1}]},options:{cutout:'65%',plugins:{legend:{labels:{color:'#8aa8cc',font:{family:'Share Tech Mono',size:10}}}}}});
   // Event trend
-  const evMonths = {};
-  State.events.forEach(ev => { evMonths[ev.monthYear || 'N/A'] = (evMonths[ev.monthYear || 'N/A'] || 0) + 1; });
-  destroyChart('eventTrend');
-  const etCtx = document.getElementById('eventTrendChart');
-  if (etCtx) {
-    State.charts.eventTrend = new Chart(etCtx, {
-      type: 'line',
-      data: {
-        labels: Object.keys(evMonths),
-        datasets: [{ label: 'Events', data: Object.values(evMonths), borderColor: NEON_COLORS[1], backgroundColor: NEON_COLORS[1] + '22', tension: 0.4, fill: true, pointBackgroundColor: NEON_COLORS[1] }],
-      },
-      options: { ...chartDefaults, plugins: { legend: { display: false } } },
-    });
-  }
-
-  // Points scatter
-  destroyChart('points');
-  const ptCtx = document.getElementById('pointsChart');
-  if (ptCtx) {
-    State.charts.points = new Chart(ptCtx, {
-      type: 'scatter',
-      data: {
-        datasets: [{
-          label: 'Members',
-          data: members.map(m => ({ x: (m.ps || {}).activityPts || 0, y: (m.ps || {}).rewardPts || 0, label: m.name })),
-          backgroundColor: NEON_COLORS[0] + '99',
-          borderColor: NEON_COLORS[0],
-          pointRadius: 6,
-        }],
-      },
-      options: {
-        ...chartDefaults,
-        plugins: {
-          legend: { display: false },
-          tooltip: { callbacks: { label: ctx => `${ctx.raw.label}: Activity ${ctx.raw.x}, Reward ${ctx.raw.y}` } },
-        },
-      },
-    });
-  }
+  const em={}; S.events.forEach(ev=>{em[ev.monthYear||'N/A']=(em[ev.monthYear||'N/A']||0)+1;});
+  dChart('eventTrend');
+  const etC=document.getElementById('eventTrendChart');
+  if(etC) S.charts.eventTrend=new Chart(etC,{type:'line',data:{labels:Object.keys(em),datasets:[{label:'Events',data:Object.values(em),borderColor:NC[1],backgroundColor:NC[1]+'22',tension:.4,fill:true,pointBackgroundColor:NC[1]}]},options:{...CD,plugins:{legend:{display:false}}}});
+  // Activity vs Reward scatter
+  dChart('points');
+  const ptC=document.getElementById('pointsChart');
+  if(ptC) S.charts.points=new Chart(ptC,{type:'scatter',data:{datasets:[{label:'Members',data:m.map(x=>({x:x.ps?.activityPts||0,y:x.ps?.rewardPts||0,label:x.name})),backgroundColor:NC[0]+'99',borderColor:NC[0],pointRadius:6}]},options:{...CD,plugins:{legend:{display:false},tooltip:{callbacks:{label:c=>`${c.raw.label}: Act ${c.raw.x}, Rew ${c.raw.y}`}}}}});
 }
 
-// ═══════════════════════════════════════════
-// RECENT ACTIVITY
-// ═══════════════════════════════════════════
-function renderRecentActivity() {
-  const list = document.getElementById('recentList');
-  const items = [
-    `Loaded ${State.members.length} team members`,
-    `${State.events.length} events in the log`,
-    `${State.members.filter(m => (m.ps || {}).mandatoryCompletion === 'Yes').length} members completed Mandatory PS`,
-    `${State.attendance.length} missed attendance records`,
-    `Average CGPA: ${State.members.length ? (State.members.reduce((a, m) => a + (m.cgpa || 0), 0) / State.members.length).toFixed(2) : 'N/A'}`,
-  ];
-  list.innerHTML = items.map(item => `<div class="recent-item"><div class="recent-dot"></div>${item}</div>`).join('');
-}
-
-// ═══════════════════════════════════════════
+// ═══════════════════════════════════════════════════════════════
 // TOAST
-// ═══════════════════════════════════════════
-function showToast(msg, type = 'info') {
-  const cont = document.getElementById('toastContainer');
-  const t = document.createElement('div');
-  const icons = { success: '✓', error: '✕', warning: '⚠', info: '◉' };
-  t.className = `toast ${type}`;
-  t.innerHTML = `<span style="color:${type === 'success' ? 'var(--green)' : type === 'error' ? 'var(--red)' : type === 'warning' ? 'var(--gold)' : 'var(--cyan)'}">${icons[type] || '◉'}</span>${msg}`;
-  cont.appendChild(t);
-  setTimeout(() => t.remove(), 3200);
+// ═══════════════════════════════════════════════════════════════
+function showToast(msg, type='info') {
+  const cont=document.getElementById('toastContainer'), el=document.createElement('div');
+  const ic={success:'✓',error:'✕',warning:'⚠',info:'◉'};
+  const cl={success:'var(--green)',error:'var(--red)',warning:'var(--gold)',info:'var(--cyan)'};
+  el.className=`toast ${type}`;
+  el.innerHTML=`<span style="color:${cl[type]}">${ic[type]}</span>${msg}`;
+  cont.appendChild(el); setTimeout(()=>el.remove(),3200);
 }
