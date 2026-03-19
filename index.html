@@ -42,8 +42,12 @@
     /* ── Firestore document refs ── */
     // Single shared doc: venue + tasks (captain writes, everyone reads)
     const CAPTAIN_DOC = doc(db, 'nexus', 'captainData');
-    // Per-member skill logs: one doc per member keyed by regNo
-    const SKILL_COL   = collection(db, 'nexus_skills');
+
+    // Skill logs collection — rules: skillLogs/{userEmail}
+    // Document ID = member's Google email (lowercase)
+    // Rule enforces: request.auth.token.email == userEmail
+    // so each member can only write their own doc, but anyone signed-in can read all
+    const SKILL_COL = collection(db, 'skillLogs');
 
     const provider = new GoogleAuthProvider();
     provider.setCustomParameters({ prompt: 'select_account' });
@@ -66,10 +70,9 @@
       user ? window._onFirebaseUser(user) : window._onFirebaseSignOut()
     );
 
-    /* ── Captain data: venue + tasks ──────────────────────────────────
-       Tasks are stored as JSON string to avoid Firestore dot-key issues
-       (reg numbers like 7376252IT310 are fine as JSON keys but not as
-        Firestore field names in nested maps).
+    /* ── Captain data: venue + tasks ────────────────────────────────
+       Rule: /nexus/captainData — read: signedIn(), write: isCaptain()
+       Tasks stored as JSON string to avoid Firestore dot-key issues.
     ──────────────────────────────────────────────────────────────── */
     window._fbSaveCaptainData = async (data) => {
       await setDoc(CAPTAIN_DOC, {
@@ -79,8 +82,6 @@
       });
     };
 
-    // onSnapshot fires IMMEDIATELY on connect with current data,
-    // then again every time captain writes. Works for ALL clients.
     window._fbListenCaptainData = (cb) =>
       onSnapshot(CAPTAIN_DOC, snap => {
         if (!snap.exists()) { cb({ venue: '', tasks: {} }); return; }
@@ -93,35 +94,61 @@
         cb({ venue: '', tasks: {} });
       });
 
-    /* ── Skill logs: per-member weekly entries ─────────────────────
-       Each document = one member (keyed by regNo).
-       Everyone can read all docs; each member writes only their own.
+    /* ── Skill logs: per-member weekly entries ──────────────────────
+       Rule: /skillLogs/{userEmail}
+         read  → any signed-in user  (all members see all logs)
+         write → only if request.auth.token.email == userEmail
+                 AND request.resource.data.email == request.auth.token.email
+
+       Document ID  = member's Google email address (lowercased)
+       This satisfies the rule's write guard automatically because
+       Firebase Auth's token.email will match the doc path.
+
+       We still store regNo inside the document body so the team
+       table can look up members by regNo from the sheet.
     ──────────────────────────────────────────────────────────────── */
-    window._fbSaveSkillLog = async (regNo, data) => {
-      await setDoc(doc(SKILL_COL, regNo), {
-        regNo      : data.regNo,
-        name       : data.name,
-        email      : data.email,
+    window._fbSaveSkillLog = async (email, data) => {
+      const docId = email.trim().toLowerCase(); // must match auth token email
+      console.log('[NEXUS] Writing skill log → skillLogs/' + docId);
+      await setDoc(doc(SKILL_COL, docId), {
+        email      : docId,            // MUST equal docId — rule validates this
+        regNo      : data.regNo  || '',
+        name       : data.name   || '',
         entriesJson: JSON.stringify(data.entries || []),
         savedAt    : Date.now(),
       });
+      console.log('[NEXUS] Skill log saved OK for', docId);
     };
 
-    // Listen to entire skill collection — all members' logs
-    window._fbListenSkillLogs = (cb) =>
-      onSnapshot(SKILL_COL, snap => {
-        const logs = {};
-        snap.forEach(d => {
-          const row = d.data();
-          let entries = [];
-          try { entries = JSON.parse(row.entriesJson || '[]'); } catch (_) {}
-          if (row.regNo) logs[row.regNo] = { ...row, entries };
-        });
-        cb(logs);
-      }, err => {
-        console.warn('[NEXUS] skillLogs snapshot error:', err.code, err.message);
-        cb({});
-      });
+    // Listens to entire skillLogs collection — fires on ALL clients
+    // every time any member saves their log. Real-time cross-account sync.
+    window._fbListenSkillLogs = (cb) => {
+      console.log('[NEXUS] Starting skillLogs listener…');
+      return onSnapshot(
+        SKILL_COL,
+        (snap) => {
+          const logs = {};
+          snap.forEach(d => {
+            const row = d.data();
+            let entries = [];
+            try { entries = JSON.parse(row.entriesJson || '[]'); } catch (_) {}
+            // Index by BOTH email and regNo so lookups always work
+            const entry = { ...row, entries };
+            if (row.email) logs[row.email] = entry;          // keyed by email
+            if (row.regNo) logs[row.regNo] = entry;          // keyed by regNo
+            // Also store normalised regNo (no spaces) for safe lookup
+            const normReg = (row.regNo || '').replace(/\s+/g, '').toUpperCase();
+            if (normReg) logs[normReg] = entry;
+          });
+          console.log('[NEXUS] skillLogs snapshot — docs:', snap.size);
+          cb(logs);
+        },
+        (err) => {
+          console.error('[NEXUS] skillLogs snapshot error:', err.code, err.message);
+          // Do not wipe existing data on error — keep last known state
+        }
+      );
+    };
   </script>
   <!-- ══════════════════════════════════════════════════════════════ -->
 </head>

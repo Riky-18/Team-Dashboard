@@ -305,14 +305,33 @@ function onCaptainDataUpdated() {
   if (S.currentMember && S.mode === 'captain') renderModalTask(S.currentMember);
 }
 
-// ── Skill logs: all members' weekly entries ───────────────────────
+// ── Skill logs listener — fires for ALL clients on every member save ──
 function startSkillListener() {
   if (_unsubSkills) { _unsubSkills(); _unsubSkills = null; }
-  if (typeof window._fbListenSkillLogs !== 'function') return;
+  if (typeof window._fbListenSkillLogs !== 'function') {
+    console.warn('[NEXUS] _fbListenSkillLogs not ready yet — retrying in 1s');
+    setTimeout(startSkillListener, 1000);
+    return;
+  }
 
   _unsubSkills = window._fbListenSkillLogs((logs) => {
-    S.skillLogs = logs || {};
-    renderSkillTeamTable(); // update team view for everyone
+    // Normalise all keys: strip spaces so lookup always works
+    // regardless of how the regNo was originally saved
+    const normalised = {};
+    Object.entries(logs).forEach(([key, val]) => {
+      // Keep both the original key AND the normalised key so
+      // lookups work no matter what format was used when saving
+      normalised[key] = val;
+      const nk = (key || '').replace(/\s+/g, '').toUpperCase();
+      if (nk !== key) normalised[nk] = val;
+    });
+    S.skillLogs = normalised;
+
+    // Always re-render the team table so all open browsers update
+    renderSkillTeamTable();
+
+    // If user is currently on the skill progress page, also refresh their personal view
+    if (S.activeSection === 'skills') renderSkillTeamTable();
   });
 }
 
@@ -335,17 +354,42 @@ async function saveCaptainData() {
 
 async function saveMySkillLog(entries) {
   const u = S.loggedInUser;
-  if (!u?.regNo) { showToast('Your account is not linked to a roster member', 'error'); return; }
-  if (typeof window._fbSaveSkillLog !== 'function') { showToast('Firestore not ready', 'error'); return; }
+
+  // email is the Firestore document ID — must match auth token email (rule enforces this)
+  if (!u?.email) {
+    showToast('Not signed in — please sign in again', 'error');
+    return false;
+  }
+  if (!u?.regNo) {
+    showToast('Your Google email is not linked to any roster member. Check that your Mail ID in the sheet matches your Google account email exactly.', 'error');
+    return false;
+  }
+  if (typeof window._fbSaveSkillLog !== 'function') {
+    showToast('Firestore not ready — please refresh', 'error');
+    return false;
+  }
+
   try {
-    await window._fbSaveSkillLog(u.regNo, { regNo: u.regNo, name: u.name, email: u.email, entries });
-    // Optimistically update local state so UI refreshes immediately
-    S.skillLogs[u.regNo] = { regNo: u.regNo, name: u.name, email: u.email, entries };
-    showToast('Skill progress saved!', 'success');
-    renderSkillTeamTable();
+    // Pass email as first arg — becomes the Firestore doc ID
+    // The rule validates: auth.token.email == userEmail (the doc path)
+    // AND request.resource.data.email == auth.token.email
+    await window._fbSaveSkillLog(u.email, {
+      regNo  : u.regNo,
+      name   : u.name,
+      email  : u.email,   // stored in doc body too — rule checks this field
+      entries: entries,
+    });
+
+    // onSnapshot fires automatically on all clients including this one
+    showToast('✓ Skill progress saved — all members can see it now', 'success');
+    return true;
   } catch (e) {
-    console.error('[NEXUS] saveMySkillLog:', e);
-    showToast('Skill save failed — check Firestore rules', 'error');
+    console.error('[NEXUS] saveMySkillLog error:', e);
+    const hint = e.code === 'permission-denied'
+      ? 'Permission denied — check Firestore rules are published.'
+      : e.message || e.code || 'Unknown error';
+    showToast(`Skill save failed: ${hint}`, 'error');
+    return false;
   }
 }
 
@@ -643,13 +687,16 @@ function initSkillWeek() {
 }
 
 function loadWeekDraft() {
-  const regNo = S.loggedInUser?.regNo;
+  const u     = S.loggedInUser;
   const week  = document.getElementById('skillWeek')?.value;
-  if (!regNo || !week) return;
-  const log     = S.skillLogs[regNo];
+  if (!u || !week) return;
+
+  // Look up by email first (primary key per rules), then regNo as fallback
+  const log      = S.skillLogs[u.email] || S.skillLogs[u.regNo]
+                || S.skillLogs[(u.regNo || '').replace(/\s+/g,'').toUpperCase()];
   const existing = (log?.entries || []).find(e => e.week === week);
-  S.slotDraft = existing ? [...(existing.slots || [])] : [];
-  const notes = document.getElementById('skillNotes');
+  S.slotDraft    = existing ? [...(existing.slots || [])] : [];
+  const notes    = document.getElementById('skillNotes');
   if (notes) notes.value = existing?.notes || '';
   renderSlotDraft();
 }
@@ -678,35 +725,53 @@ function renderSlotDraft() {
 }
 
 async function saveWeekEntry() {
-  const regNo = S.loggedInUser?.regNo;
-  if (!regNo) { showToast('Your account is not linked to a roster member', 'error'); return; }
-  const week  = document.getElementById('skillWeek')?.value;
-  if (!week)  { showToast('Select a week first', 'warning'); return; }
+  const u = S.loggedInUser;
+  if (!u?.regNo) {
+    showToast('Your Google email is not linked to any roster member. Check Mail ID in sheet.', 'error');
+    return;
+  }
+  const week = document.getElementById('skillWeek')?.value;
+  if (!week)               { showToast('Select a week first', 'warning'); return; }
   if (!S.slotDraft.length) { showToast('Add at least one PS slot', 'warning'); return; }
   const notes = (document.getElementById('skillNotes')?.value || '').trim();
-  // Merge this week into existing entries
-  const log  = S.skillLogs[regNo];
+
+  // Primary key = email (per Firestore rule), fallback to regNo variants
+  const normKey = (u.regNo || '').replace(/\s+/g, '').toUpperCase();
+  const log  = S.skillLogs[u.email] || S.skillLogs[u.regNo] || S.skillLogs[normKey];
   const prev = (log?.entries || []).filter(e => e.week !== week);
   const entries = [...prev, { week, slots: [...S.slotDraft], notes, savedAt: Date.now() }];
-  await saveMySkillLog(entries);
-  S.slotDraft = []; renderSlotDraft();
-  if (document.getElementById('skillNotes')) document.getElementById('skillNotes').value = '';
+
+  const saved = await saveMySkillLog(entries);
+  if (saved) {
+    S.slotDraft = [];
+    renderSlotDraft();
+    const notesEl = document.getElementById('skillNotes');
+    if (notesEl) notesEl.value = '';
+  }
 }
 
 // ── Team table — ALL members' entries, visible to everyone ─────────
+// Called by onSnapshot every time ANY member saves — real-time for all
 function renderSkillTeamTable() {
   const body = document.getElementById('skillTeamBody');
   if (!body) return;
 
-  // Flatten: one row per (member × week entry), sorted by member name then week
   const rows = [];
   S.members.forEach(m => {
-    const log = S.skillLogs[m.regNo];
+    // Try both raw regNo and normalised (spaces stripped) to find the log
+    const normKey = (m.regNo || '').replace(/\s+/g, '').toUpperCase();
+    const log = S.skillLogs[m.regNo] || S.skillLogs[normKey];
+
     if (!log?.entries?.length) {
-      rows.push({ member: m, week: '—', slots: [], notes: '—', hasSeen: false });
+      rows.push({ member: m, week: '—', slots: [], notes: '—' });
     } else {
       const sorted = [...log.entries].sort((a, b) => (b.week || '').localeCompare(a.week || ''));
-      sorted.forEach(entry => rows.push({ member: m, week: entry.week || '—', slots: entry.slots || [], notes: entry.notes || '—', hasSeen: true }));
+      sorted.forEach(entry => rows.push({
+        member: m,
+        week  : entry.week || '—',
+        slots : entry.slots || [],
+        notes : entry.notes || '—',
+      }));
     }
   });
 
@@ -715,7 +780,7 @@ function renderSkillTeamTable() {
   body.innerHTML = rows.map(row => {
     const slotsHtml = row.slots.length
       ? row.slots.map(s => `<span class="skill-chip ${s.result === 'passed' ? 'skill-primary' : 'skill-spec'}" style="font-size:9px;padding:2px 8px">${s.name} [${(s.result || '').toUpperCase()}]</span>`).join(' ')
-      : '<span style="color:var(--text-muted)">No entries yet</span>';
+      : '<span style="color:var(--text-muted)">—</span>';
     return `<tr>
       <td><strong>${row.member.name}</strong></td>
       <td style="font-family:var(--font-mono);font-size:10px;color:var(--cyan)">${row.member.regNo}</td>
@@ -1007,6 +1072,9 @@ function renderAnalyticsCharts() {
   if(ptC)S.charts.pts=new Chart(ptC,{type:'scatter',data:{datasets:[{data:m.map(x=>({x:x.ps?.activityPts||0,y:x.ps?.rewardPts||0,label:x.name})),backgroundColor:NC[0]+'99',borderColor:NC[0],pointRadius:6}]},options:{...CD,plugins:{legend:{display:false},tooltip:{callbacks:{label:c=>`${c.raw.label}: Act ${c.raw.x}, Rew ${c.raw.y}`}}}}});
 }
 
+/* ════════════════════════════════════════════════════════════════
+   TOAST
+════════════════════════════════════════════════════════════════ */
 function showToast(msg, type = 'info') {
   const cont = document.getElementById('toastContainer'), el = document.createElement('div');
   const ic = {success:'✓',error:'✕',warning:'⚠',info:'◉'}, cl = {success:'var(--green)',error:'var(--red)',warning:'var(--gold)',info:'var(--cyan)'};
