@@ -1,6 +1,6 @@
 {
-  "name": "NEXUS Team Command Center",
-  "short_name": "NEXUS",
+  "name": "Zentrix Team Command Center",
+  "short_name": "Zentrix",
   "description": "Team dashboard for members, captain controls, live skill logs, analytics, and tasks.",
   "start_url": "./",
   "scope": "./",

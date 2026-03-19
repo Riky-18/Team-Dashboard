@@ -4,14 +4,14 @@
   <meta charset="UTF-8"/>
   <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
   <meta name="theme-color" content="#060e1e"/>
-  <meta name="description" content="NEXUS Team Command Center for team tracking, skill logs, tasks, analytics, and live coordination."/>
+  <meta name="description" content="Zentrix Team Command Center for team tracking, skill logs, tasks, analytics, and live coordination."/>
   <meta name="apple-mobile-web-app-capable" content="yes"/>
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent"/>
-  <meta name="apple-mobile-web-app-title" content="NEXUS"/>
+  <meta name="apple-mobile-web-app-title" content="Zentrix"/>
   <link rel="manifest" href="manifest.webmanifest"/>
   <link rel="icon" type="image/svg+xml" href="icons/icon-192.svg"/>
   <link rel="apple-touch-icon" href="icons/apple-touch-icon.svg"/>
-  <title>NEXUS — Team Command Center</title>
+  <title>Zentrix — Team Command Center</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@400;600;700;900&family=Share+Tech+Mono&family=Rajdhani:wght@300;400;500;600;700&display=swap" rel="stylesheet">
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
@@ -100,7 +100,7 @@
         try { tasks = JSON.parse(d.tasksJson || '{}'); } catch (_) {}
         cb({ venue: d.venue || '', tasks });
       }, err => {
-        console.warn('[NEXUS] captainData snapshot error:', err.code, err.message);
+        console.warn('[Zentrix] captainData snapshot error:', err.code, err.message);
         cb({ venue: '', tasks: {} });
       });
 
@@ -109,7 +109,7 @@
       onSnapshot(CONFIG_DOC, snap => {
         cb(snap.exists() ? snap.data() : { captainEmails: [] });
       }, err => {
-        console.warn('[NEXUS] config snapshot error:', err.code, err.message);
+        console.warn('[Zentrix] config snapshot error:', err.code, err.message);
         cb({ captainEmails: [] });
       });
 
@@ -163,7 +163,7 @@
     ──────────────────────────────────────────────────────────────── */
     window._fbSaveSkillLog = async (email, data) => {
       const docId = email.trim().toLowerCase(); // must match auth token email
-      console.log('[NEXUS] Writing skill log → skillLogs/' + docId);
+      console.log('[Zentrix] Writing skill log → skillLogs/' + docId);
       await setDoc(doc(SKILL_COL, docId), {
         email      : docId,            // MUST equal docId — rule validates this
         regNo      : data.regNo  || '',
@@ -171,13 +171,13 @@
         entriesJson: JSON.stringify(data.entries || []),
         savedAt    : Date.now(),
       });
-      console.log('[NEXUS] Skill log saved OK for', docId);
+      console.log('[Zentrix] Skill log saved OK for', docId);
     };
 
     // Listens to entire skillLogs collection — fires on ALL clients
     // every time any member saves their log. Real-time cross-account sync.
     window._fbListenSkillLogs = (cb) => {
-      console.log('[NEXUS] Starting skillLogs listener…');
+      console.log('[Zentrix] Starting skillLogs listener…');
       return onSnapshot(
         SKILL_COL,
         (snap) => {
@@ -194,11 +194,11 @@
             const normReg = (row.regNo || '').replace(/\s+/g, '').toUpperCase();
             if (normReg) logs[normReg] = entry;
           });
-          console.log('[NEXUS] skillLogs snapshot — docs:', snap.size);
+          console.log('[Zentrix] skillLogs snapshot — docs:', snap.size);
           cb(logs);
         },
         (err) => {
-          console.error('[NEXUS] skillLogs snapshot error:', err.code, err.message);
+          console.error('[Zentrix] skillLogs snapshot error:', err.code, err.message);
           // Do not wipe existing data on error — keep last known state
         }
       );
@@ -214,7 +214,7 @@
     <div class="loader-ring"></div>
     <div class="loader-ring r2"></div>
     <div class="loader-ring r3"></div>
-    <p class="loader-text">NEXUS</p>
+    <p class="loader-text">ZENTRIX</p>
     <p class="loader-sub" id="loaderSub">CONNECTING…</p>
   </div>
 </div>
@@ -225,7 +225,7 @@
   <div class="scan-line"></div>
   <div class="role-container">
     <div class="role-logo">
-      <span class="logo-n">N</span><span class="logo-e">E</span><span class="logo-x">X</span><span class="logo-u">U</span><span class="logo-s">S</span>
+      <span class="logo-n">Z</span><span class="logo-e">E</span><span class="logo-x">N</span><span class="logo-u">T</span><span class="logo-s">R</span><span class="logo-x">I</span><span class="logo-e">X</span>
     </div>
     <p class="role-tagline">TEAM COMMAND CENTER</p>
     <div class="login-card" id="loginCard">
@@ -261,7 +261,7 @@
 <div id="mainApp" class="main-app hidden">
 
   <aside class="sidebar" id="sidebar">
-    <div class="sidebar-logo"><span class="sb-logo-text">NEXUS</span><span class="sb-logo-tag">v3.0</span></div>
+    <div class="sidebar-logo"><span class="sb-logo-text">ZENTRIX</span><span class="sb-logo-tag">v3.0</span></div>
     <div class="sidebar-mode" id="sbModeTag">● MEMBER MODE</div>
     <nav class="sidebar-nav">
       <a href="#" class="nav-item active" data-section="dashboard"><span class="nav-icon">⬡</span><span class="nav-label">Dashboard</span></a>
@@ -290,7 +290,7 @@
       <div class="topbar-title">
         <span id="topbarSection">DASHBOARD</span>
         <span class="topbar-sep">|</span>
-        <span class="topbar-team">TEAM NEXUS</span>
+        <span class="topbar-team">TEAM ZENTRIX</span>
       </div>
       <div class="topbar-right">
         <div class="venue-pill"><span class="venue-icon">◎</span><span id="venueText">Venue: Not Set</span></div>
@@ -343,7 +343,7 @@
 
       <div id="installBanner" class="install-banner hidden">
         <div>
-          <div class="install-banner-title">INSTALL NEXUS</div>
+          <div class="install-banner-title">INSTALL ZENTRIX</div>
           <div class="install-banner-copy">Add this dashboard to your laptop or phone for faster full-screen access.</div>
         </div>
         <div class="install-banner-actions">

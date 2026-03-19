@@ -1,5 +1,5 @@
 /* ══════════════════════════════════════════════════════════════════
-   NEXUS TEAM DASHBOARD — script.js
+   ZENTRIX TEAM DASHBOARD — script.js
    Data   : Google Sheets (live CSV)
    Sync   : Firebase Firestore (venue, tasks, skill logs — real-time)
    Access : Captain → full edit  |  Member → read-only
@@ -122,7 +122,7 @@ function setupInstallExperience() {
   window.addEventListener('appinstalled', () => {
     _deferredInstallPrompt = null;
     toggleInstallBanner(false);
-    showToast('NEXUS installed successfully', 'success');
+    showToast('Zentrix installed successfully', 'success');
   });
 
   if (isIosInstallCandidate()) {
@@ -174,7 +174,7 @@ function registerServiceWorker() {
 
   window.addEventListener('load', () => {
     navigator.serviceWorker.register('./sw.js')
-      .catch(err => console.warn('[NEXUS] service worker registration failed:', err));
+      .catch(err => console.warn('[Zentrix] service worker registration failed:', err));
   });
 }
 
@@ -322,7 +322,7 @@ async function loadSheetData() {
     S.events          = c.events;
     S.attendance      = c.attendance;
     S.filteredMembers = [...c.members];
-    console.log('[NEXUS] Using cached sheet data');
+    console.log('[Zentrix] Using cached sheet data');
     return;
   }
 
@@ -342,7 +342,7 @@ async function loadSheetData() {
   // Store in cache
   _sheetCache = { ts: Date.now(), data: { members: S.members, events: S.events, attendance: S.attendance } };
 
-  console.log(`[NEXUS] Loaded: ${details.length} members, ${S.events.length} events`);
+  console.log(`[Zentrix] Loaded: ${details.length} members, ${S.events.length} events`);
   if (!details.length) showToast('Sheet returned 0 rows — check sharing + GIDs', 'warning');
 }
 
@@ -451,7 +451,7 @@ function onCaptainDataUpdated() {
 function startSkillListener() {
   if (_unsubSkills) { _unsubSkills(); _unsubSkills = null; }
   if (typeof window._fbListenSkillLogs !== 'function') {
-    console.warn('[NEXUS] _fbListenSkillLogs not ready yet — retrying in 1s');
+    console.warn('[Zentrix] _fbListenSkillLogs not ready yet — retrying in 1s');
     setTimeout(startSkillListener, 1000);
     return;
   }
@@ -488,7 +488,7 @@ async function saveCaptainData() {
     await window._fbSaveCaptainData({ venue: S.captainData.venue, tasks: S.captainData.tasks });
     return true;
   } catch (e) {
-    console.error('[NEXUS] saveCaptainData:', e);
+    console.error('[Zentrix] saveCaptainData:', e);
     showToast('Save failed — check Firestore rules are published', 'error');
     return false;
   }
@@ -526,7 +526,7 @@ async function saveMySkillLog(entries) {
     showToast('✓ Skill progress saved — all members can see it now', 'success');
     return true;
   } catch (e) {
-    console.error('[NEXUS] saveMySkillLog error:', e);
+    console.error('[Zentrix] saveMySkillLog error:', e);
     const hint = e.code === 'permission-denied'
       ? 'Permission denied — check Firestore rules are published.'
       : e.message || e.code || 'Unknown error';
@@ -594,7 +594,7 @@ async function addCaptainEmail() {
     showToast(`✓ ${email} added as Captain`, 'success');
   } catch (e) {
     showToast('Failed to save — check Firestore rules', 'error');
-    console.error('[NEXUS] addCaptainEmail:', e);
+    console.error('[Zentrix] addCaptainEmail:', e);
   }
 }
 
@@ -609,7 +609,7 @@ window.removeCaptainEmail = async (email) => {
     showToast(`${email} removed from captains`, 'success');
   } catch (e) {
     showToast('Failed to save — check Firestore rules', 'error');
-    console.error('[NEXUS] removeCaptainEmail:', e);
+    console.error('[Zentrix] removeCaptainEmail:', e);
   }
 };
 
@@ -861,7 +861,7 @@ function exportTasks() {
   if (!requireCaptain('Export')) return;
   const a = document.createElement('a');
   a.href = URL.createObjectURL(new Blob([JSON.stringify({ venue: S.captainData.venue, tasks: S.captainData.tasks, exportedAt: new Date().toISOString() }, null, 2)], { type: 'application/json' }));
-  a.download = 'nexus_tasks.json'; a.click();
+  a.download = 'zentrix_tasks.json'; a.click();
   showToast('Exported', 'success');
 }
 

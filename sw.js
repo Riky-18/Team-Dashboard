@@ -1,4 +1,4 @@
-const CACHE_NAME = 'nexus-shell-v1';
+const CACHE_NAME = 'zentrix-shell-v1';
 const APP_SHELL = [
   './',
   './index.html',
