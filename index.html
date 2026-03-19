@@ -79,7 +79,6 @@
       }
     };
 
-    // All clients subscribe to this — fires immediately + on every captain change
     window._fbSubscribeCaptainData = (callback, onError) => {
       const unsub = onSnapshot(
         CAPTAIN_DOC,

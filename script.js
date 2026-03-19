@@ -14,20 +14,7 @@
 const SHEET_ID = '1hDjwJBT5N_YzPHZNFpZOvYJOyXD5ks8qkClM_psY9Es';
 const CSV_BASE = `https://docs.google.com/spreadsheets/d/${SHEET_ID}/export?format=csv`;
 
-// ══════════════════════════════════════════════════════════════
-// ★ FIND YOUR GIDs:
-//   1. Open your Google Sheet
-//   2. Click each tab at the bottom
-//   3. Look at the URL — it ends with  #gid=XXXXXXXXX
-//   4. Copy that number and paste it below
-//
-// Your sheet tab order (based on data you shared):
-//   Tab 1 → Details        (first tab = always gid 0)
-//   Tab 2 → Skills
-//   Tab 3 → PS Completion
-//   Tab 4 → Events
-//   Tab 5 → Missed Attendance
-// ══════════════════════════════════════════════════════════════
+
 const GID = {
   details    : '1766801887',  // Tab — Details
   skills     : '1529264533',  // Tab — Skills
@@ -36,10 +23,7 @@ const GID = {
   attendance : '2141076572',  // Tab — Missed Attendance
 };
 
-// ② Captain emails — anyone whose "Role" column = "Captain" is also
-//    auto-promoted. Add real Gmail addresses here as a hard override:
-const CAPTAIN_EMAILS = [
-  // 'captain@gmail.com',
+const CAPTAIN_EMAILS = [ 'ritviks.it25@bitsathy.ac.in'
 ];
 
 const LS_KEY = 'nexus_cap_v3'; // localStorage key for captain data
@@ -197,12 +181,6 @@ function col(row, ...keys) {
   return 'N/A';
 }
 
-// ── SHEET 1: DETAILS ─────────────────────────────────────────────
-// Headers: S. No | NAME | REG .NO. | DEPARTMENT | ROLE |
-//   MOBILE NUMBER | MAIL ID | CGPA | ARREARS COUNT (CURRENT) |
-//   SPECIAL LAB | MEMBER OF SSG | EVENTS ATTENDED | EVENTS WON |
-//   FOREIGN LANGUAGE SELECTED | MODE OF STUDY |
-//   CURRENTLY REGISTERED EVENTS | NOTES
 function parseDetail(r) {
   const regNo = col(r,
     'REG .NO.','REG. NO.','REG.NO.',
@@ -238,10 +216,6 @@ function parseDetail(r) {
   };
 }
 
-// ── SHEET 2: SKILLS ──────────────────────────────────────────────
-// Headers: S. No | NAME | REG. NO. | PRIMARY SKILL 1 | PRIMARY SKILL 2 |
-//   SECONDARY SKILL 1 | SECONDARY SKILL 2 |
-//   SPECIALIZATION SKILL 1 | SPECIALIZATION SKILL 2
 function parseSkill(r) {
   const regNo = col(r,
     'REG. NO.','REG .NO.','REG.NO.',
@@ -261,11 +235,6 @@ function parseSkill(r) {
   };
 }
 
-// ── SHEET 3: PS COMPLETION ───────────────────────────────────────
-// Headers: S. No | NAME | REG .NO. | DEPT. | ROLE |
-//   REWARD POINTS | ACTIVITY POINTS |
-//   MANDATORY PS COMPLETION (YES/NO) |
-//   [Date range cols with sub-headers: ATTEMPTS / CLEARED]
 function parsePS(r) {
   const regNo = col(r,
     'REG .NO.','REG. NO.','REG.NO.',
@@ -273,8 +242,6 @@ function parsePS(r) {
     'REG NO','RegNo'
   );
   if (!regNo || regNo === 'N/A') return null;
-
-  // Sum all weekly ATTEMPTS and CLEARED columns
   let totalAttempts = 0, totalCleared = 0;
   for (const k in r) {
     const kl = k.trim().toLowerCase();
@@ -300,8 +267,6 @@ function parsePS(r) {
   };
 }
 
-// ── SHEET 4: EVENTS ──────────────────────────────────────────────
-// Headers: __S.NO__ | EVENTS | MONTH - YEAR | HOST | Type | DOCUMENTATION
 function parseEvent(r) {
   const name = col(r, 'EVENTS','Events','EVENT NAME','Event Name','NAME','Name');
   if (!name || name === 'N/A') return null;
@@ -314,7 +279,6 @@ function parseEvent(r) {
   };
 }
 
-// ── SHEET 5: MISSED ATTENDANCE ───────────────────────────────────
 function parseAttend(r) {
   return {
     date      : col(r, 'DATE','Date'),
@@ -325,8 +289,6 @@ function parseAttend(r) {
   };
 }
 
-// Normalise regNo — strip ALL internal spaces for safe key matching
-// e.g. "7376252IT310" == "7376252IT310", "7376252 IT310" → same
 const normReg = r => (r||'').replace(/\s+/g,'').toUpperCase();
 
 function mergeMembers(details, skills, ps) {
@@ -369,7 +331,7 @@ async function loadSheetData() {
   S.attendance      = attend;
   S.filteredMembers = [...S.members];
 
-  // Debug info in console
+  
   console.log(`[NEXUS] Loaded: ${details.length} members, ${skills.length} skills, ${ps.length} PS rows, ${events.length} events`);
 
   if (!details.length) {
@@ -377,14 +339,9 @@ async function loadSheetData() {
   }
 }
 
-// ═══════════════════════════════════════════════════════════════
-// CORE LOGIN — the only place S.mode is assigned
-// ═══════════════════════════════════════════════════════════════
 async function loginWithEmail(email, displayName, picture) {
-  // Ensure loader is fully gone first
   hideLoader();
 
-  // Show loading state inside the login card
   const card = document.getElementById('loginCard');
   if (card) card.innerHTML = `
     <div style="padding:48px 20px;text-align:center">
@@ -393,7 +350,6 @@ async function loginWithEmail(email, displayName, picture) {
       <p style="font-family:var(--font-mono);font-size:11px;color:var(--text-muted)">${email}</p>
     </div>`;
 
-  // Make sure login screen is visible while we load
   showLoginScreen();
 
   try { await loadSheetData(); }
