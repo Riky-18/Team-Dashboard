@@ -3,6 +3,14 @@
 <head>
   <meta charset="UTF-8"/>
   <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <meta name="theme-color" content="#060e1e"/>
+  <meta name="description" content="NEXUS Team Command Center for team tracking, skill logs, tasks, analytics, and live coordination."/>
+  <meta name="apple-mobile-web-app-capable" content="yes"/>
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent"/>
+  <meta name="apple-mobile-web-app-title" content="NEXUS"/>
+  <link rel="manifest" href="manifest.webmanifest"/>
+  <link rel="icon" type="image/svg+xml" href="icons/icon-192.svg"/>
+  <link rel="apple-touch-icon" href="icons/apple-touch-icon.svg"/>
   <title>NEXUS — Team Command Center</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@400;600;700;900&family=Share+Tech+Mono&family=Rajdhani:wght@300;400;500;600;700&display=swap" rel="stylesheet">
@@ -331,6 +339,17 @@
       <!-- Offline banner — Fix 4 -->
       <div id="offlineBanner" class="offline-banner hidden">
         <span>⚡ NO INTERNET CONNECTION — showing last loaded data</span>
+      </div>
+
+      <div id="installBanner" class="install-banner hidden">
+        <div>
+          <div class="install-banner-title">INSTALL NEXUS</div>
+          <div class="install-banner-copy">Add this dashboard to your laptop or phone for faster full-screen access.</div>
+        </div>
+        <div class="install-banner-actions">
+          <button class="btn-neon" id="installAppBtn" type="button">INSTALL APP</button>
+          <button class="btn-ghost-sm" id="dismissInstallBtn" type="button">LATER</button>
+        </div>
       </div>
 
       <div class="section-header" style="display:flex;align-items:flex-start;justify-content:space-between;gap:16px">

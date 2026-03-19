@@ -48,6 +48,8 @@ let _unsubConfig  = null;  // Fix 5: captain config listener
 // ── Boot state ───────────────────────────────────────────────────
 let _domReady    = false;
 let _pendingUser = null;
+let _deferredInstallPrompt = null;
+let _installBannerDismissed = false;
 
 /* ════════════════════════════════════════════════════════════════
    FIREBASE CALLBACKS — called by the module block in index.html
@@ -67,6 +69,8 @@ window._onFirebaseError   = (msg) => { resetGBtn(); hideLoader(); showLoginScree
 document.addEventListener('DOMContentLoaded', () => {
   wireListeners();
   setupOfflineDetection(); // Fix 4
+  setupInstallExperience();
+  registerServiceWorker();
   _domReady = true;
   setLoader('SYSTEM READY');
   setTimeout(() => {
@@ -97,6 +101,81 @@ function setupOfflineDetection() {
   window.addEventListener('online',  () => { S.isOnline = true;  showBanner(false); });
   // Show banner immediately if already offline on page load
   if (!navigator.onLine) showBanner(true);
+}
+
+function setupInstallExperience() {
+  const installBtn = document.getElementById('installAppBtn');
+  const dismissBtn = document.getElementById('dismissInstallBtn');
+
+  if (installBtn) installBtn.addEventListener('click', installApp);
+  if (dismissBtn) dismissBtn.addEventListener('click', dismissInstallBanner);
+
+  if (window.matchMedia('(display-mode: standalone)').matches) return;
+
+  window.addEventListener('beforeinstallprompt', (event) => {
+    event.preventDefault();
+    _deferredInstallPrompt = event;
+    _installBannerDismissed = false;
+    toggleInstallBanner(true);
+  });
+
+  window.addEventListener('appinstalled', () => {
+    _deferredInstallPrompt = null;
+    toggleInstallBanner(false);
+    showToast('NEXUS installed successfully', 'success');
+  });
+
+  if (isIosInstallCandidate()) {
+    toggleInstallBanner(true);
+  }
+}
+
+function isIosInstallCandidate() {
+  const ua = window.navigator.userAgent || '';
+  const isIos = /iphone|ipad|ipod/i.test(ua);
+  const isStandalone = window.navigator.standalone === true;
+  return isIos && !isStandalone;
+}
+
+function toggleInstallBanner(show) {
+  const banner = document.getElementById('installBanner');
+  if (!banner) return;
+
+  const shouldShow = show && !_installBannerDismissed && !window.matchMedia('(display-mode: standalone)').matches;
+  banner.classList.toggle('hidden', !shouldShow);
+}
+
+function dismissInstallBanner() {
+  _installBannerDismissed = true;
+  toggleInstallBanner(false);
+}
+
+async function installApp() {
+  if (_deferredInstallPrompt) {
+    _deferredInstallPrompt.prompt();
+    const choice = await _deferredInstallPrompt.userChoice;
+    if (choice.outcome !== 'accepted') showToast('Install cancelled', 'warning');
+    _deferredInstallPrompt = null;
+    toggleInstallBanner(false);
+    return;
+  }
+
+  if (isIosInstallCandidate()) {
+    showToast('On iPhone: Share -> Add to Home Screen', 'info');
+    return;
+  }
+
+  showToast('Open this site in Chrome or Edge over HTTPS to install it', 'warning');
+}
+
+function registerServiceWorker() {
+  if (!('serviceWorker' in navigator)) return;
+  if (window.location.protocol === 'file:') return;
+
+  window.addEventListener('load', () => {
+    navigator.serviceWorker.register('./sw.js')
+      .catch(err => console.warn('[NEXUS] service worker registration failed:', err));
+  });
 }
 
 function resetGBtn() {

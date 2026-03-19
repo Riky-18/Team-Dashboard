@@ -315,6 +315,21 @@ textarea.captain-input{resize:vertical;}
 }
 
 /* FIX 3 — iOS Safari tap fix: cursor:pointer on sections so click delegation fires */
+.install-banner{
+  display:flex; align-items:center; justify-content:space-between; gap:18px; flex-wrap:wrap;
+  background:linear-gradient(135deg,rgba(0,212,255,.08),rgba(124,58,237,.1));
+  border:1px solid var(--border-mid); border-radius:var(--radius-lg); padding:16px 18px; margin-bottom:20px;
+  box-shadow:0 12px 30px rgba(0,0,0,.22);
+}
+.install-banner-title{
+  font-family:var(--font-display); font-size:11px; letter-spacing:3px; color:var(--cyan); margin-bottom:6px;
+}
+.install-banner-copy{
+  font-size:13px; color:var(--text-secondary); max-width:620px;
+}
+.install-banner-actions{
+  display:flex; align-items:center; gap:10px; flex-wrap:wrap;
+}
 .section, .main-content { cursor:auto; }
 
 /* RESPONSIVE */
