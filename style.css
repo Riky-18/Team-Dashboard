@@ -305,6 +305,18 @@ textarea.captain-input{resize:vertical;}
 .hidden{display:none!important;}.flex-row{display:flex;align-items:flex-start;}
 .empty-state{text-align:center;padding:40px;color:var(--text-muted);font-family:var(--font-mono);font-size:12px;letter-spacing:2px;grid-column:1/-1;}
 
+/* FIX 4 — OFFLINE BANNER */
+.offline-banner{
+  display:flex; align-items:center; justify-content:center; gap:10px;
+  background:rgba(255,215,0,.08); border:1px solid rgba(255,215,0,.4);
+  border-radius:var(--radius); padding:10px 20px; margin-bottom:20px;
+  font-family:var(--font-mono); font-size:11px; letter-spacing:2px; color:var(--gold);
+  animation:pulse 2s ease-in-out infinite;
+}
+
+/* FIX 3 — iOS Safari tap fix: cursor:pointer on sections so click delegation fires */
+.section, .main-content { cursor:auto; }
+
 /* RESPONSIVE */
 @media(max-width:900px){
   .sidebar{transform:translateX(-100%);}

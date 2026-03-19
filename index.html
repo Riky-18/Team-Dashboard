@@ -74,6 +74,8 @@
        Rule: /nexus/captainData — read: signedIn(), write: isCaptain()
        Tasks stored as JSON string to avoid Firestore dot-key issues.
     ──────────────────────────────────────────────────────────────── */
+    const CONFIG_DOC = doc(db, 'nexus', 'config'); // captain emails list
+
     window._fbSaveCaptainData = async (data) => {
       await setDoc(CAPTAIN_DOC, {
         venue     : data.venue || '',
@@ -93,6 +95,50 @@
         console.warn('[NEXUS] captainData snapshot error:', err.code, err.message);
         cb({ venue: '', tasks: {} });
       });
+
+    // nexus/config — stores captainEmails array, writable only by current captain
+    window._fbListenConfig = (cb) =>
+      onSnapshot(CONFIG_DOC, snap => {
+        cb(snap.exists() ? snap.data() : { captainEmails: [] });
+      }, err => {
+        console.warn('[NEXUS] config snapshot error:', err.code, err.message);
+        cb({ captainEmails: [] });
+      });
+
+    window._fbSaveConfig = async (data) => {
+      await setDoc(CONFIG_DOC, data);
+    };
+
+    /*
+    ══ FIRESTORE RULES REQUIRED (paste in Firebase Console → Firestore → Rules) ══
+
+    rules_version = '2';
+    service cloud.firestore {
+      match /databases/{database}/documents {
+        function signedIn() { return request.auth != null; }
+        function isCaptain() {
+          return signedIn() && request.auth.token.email in [
+            "ritviks.it25@bitsathy.ac.in"
+          ];
+        }
+        match /nexus/captainData {
+          allow read:  if signedIn();
+          allow write: if isCaptain();
+        }
+        match /nexus/config {
+          allow read:  if signedIn();
+          allow write: if isCaptain();
+        }
+        match /skillLogs/{userEmail} {
+          allow read:  if signedIn();
+          allow write: if signedIn()
+            && request.auth.token.email == userEmail
+            && request.resource.data.email == request.auth.token.email;
+        }
+        match /{document=**} { allow read, write: if false; }
+      }
+    }
+    ════════════════════════════════════════════════════════════════════════════ */
 
     /* ── Skill logs: per-member weekly entries ──────────────────────
        Rule: /skillLogs/{userEmail}
@@ -282,9 +328,18 @@
         </div>
       </div>
 
-      <div class="section-header">
-        <h2 class="section-title">COMMAND OVERVIEW</h2>
-        <p class="section-sub">Live data · Google Sheets + Firebase</p>
+      <!-- Offline banner — Fix 4 -->
+      <div id="offlineBanner" class="offline-banner hidden">
+        <span>⚡ NO INTERNET CONNECTION — showing last loaded data</span>
+      </div>
+
+      <div class="section-header" style="display:flex;align-items:flex-start;justify-content:space-between;gap:16px">
+        <div>
+          <h2 class="section-title">COMMAND OVERVIEW</h2>
+          <p class="section-sub">Live data · Google Sheets + Firebase</p>
+        </div>
+        <!-- Fix 2: Refresh Data button -->
+        <button class="btn-ghost-sm" id="refreshDataBtn" title="Re-fetch latest data from Google Sheets">↺ REFRESH DATA</button>
       </div>
       <div class="summary-grid">
         <div class="summary-card" data-color="cyan"><div class="sc-icon">◈</div><div class="sc-data"><span class="sc-num" id="sc-total">--</span><span class="sc-label">TOTAL MEMBERS</span></div><div class="sc-glow"></div></div>
@@ -396,7 +451,20 @@
 
     <!-- ── CAPTAIN PANEL ── -->
     <section class="section" id="sec-captain">
-      <div class="section-header"><h2 class="section-title">CAPTAIN PANEL</h2><p class="section-sub">Venue · Tasks · Full control</p></div>
+      <div class="section-header"><h2 class="section-title">CAPTAIN PANEL</h2><p class="section-sub">Venue · Tasks · Captains · Full control</p></div>
+
+      <!-- Captain List Management — Fix 5 -->
+      <div class="captain-card">
+        <h4 class="cc-title">◉ CAPTAIN ACCOUNTS</h4>
+        <p style="font-family:var(--font-mono);font-size:10px;color:var(--text-muted);margin-bottom:14px;letter-spacing:1px">
+          Manage who has Captain access. Changes take effect on their next sign-in.
+        </p>
+        <div id="captainEmailList" class="skills-display" style="margin-bottom:14px;min-height:36px;align-items:center"></div>
+        <div class="task-form-row">
+          <input type="email" id="newCaptainEmail" class="captain-input" placeholder="new.captain@bitsathy.ac.in">
+          <button class="btn-neon" id="addCaptainEmailBtn">+ ADD CAPTAIN</button>
+        </div>
+      </div>
 
       <div class="captain-card">
         <h4 class="cc-title">◎ VENUE — updates in real time for all members</h4>

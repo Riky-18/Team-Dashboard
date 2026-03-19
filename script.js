@@ -17,8 +17,9 @@ const GID = {
   attendance : '2141076572',
 };
 
-// Captain emails (hard override — also auto-detected from Role column)
-const CAPTAIN_EMAILS = ['ritviks.it25@bitsathy.ac.in'];
+// Captain emails — seeded from hard-coded list, then overridden live from Firestore nexus/config
+// Fix 5: no longer hard-coded only — Firestore is the source of truth after first load
+let CAPTAIN_EMAILS = ['ritviks.it25@bitsathy.ac.in'];
 
 // ── Global state ─────────────────────────────────────────────────
 const S = {
@@ -29,17 +30,20 @@ const S = {
   attendance     : [],
   filteredMembers: [],
   captainData    : { venue: '', tasks: {} },
-  skillLogs      : {},   // { [regNo]: { name, email, entries: [...] } }
+  captainEmails  : ['ritviks.it25@bitsathy.ac.in'], // Fix 5: live from Firestore
+  skillLogs      : {},
   activeSection  : 'dashboard',
   currentMember  : null,
   taskFilter     : 'all',
   charts         : {},
-  slotDraft      : [],   // current week's unsaved slots
+  slotDraft      : [],
+  isOnline       : navigator.onLine,  // Fix 4: offline tracking
 };
 
 // ── Firestore unsubscribe handles ───────────────────────────────
 let _unsubCaptain = null;
 let _unsubSkills  = null;
+let _unsubConfig  = null;  // Fix 5: captain config listener
 
 // ── Boot state ───────────────────────────────────────────────────
 let _domReady    = false;
@@ -62,6 +66,7 @@ window._onFirebaseError   = (msg) => { resetGBtn(); hideLoader(); showLoginScree
 ════════════════════════════════════════════════════════════════ */
 document.addEventListener('DOMContentLoaded', () => {
   wireListeners();
+  setupOfflineDetection(); // Fix 4
   _domReady = true;
   setLoader('SYSTEM READY');
   setTimeout(() => {
@@ -75,9 +80,24 @@ document.addEventListener('DOMContentLoaded', () => {
   }, 1000);
 });
 
-const setLoader      = t => { const e = document.getElementById('loaderSub'); if (e) e.textContent = t; };
-const hideLoader     = () => { const l = document.getElementById('loader'); if (!l || l.classList.contains('hidden')) return; l.style.opacity = '0'; setTimeout(() => l.classList.add('hidden'), 500); };
+const setLoader       = t => { const e = document.getElementById('loaderSub'); if (e) e.textContent = t; };
+const hideLoader      = () => { const l = document.getElementById('loader'); if (!l || l.classList.contains('hidden')) return; l.style.opacity = '0'; setTimeout(() => l.classList.add('hidden'), 500); };
 const showLoginScreen = () => document.getElementById('roleScreen').classList.remove('hidden');
+
+// Fix 4 — Offline detection: show/hide banner, warn user
+function setupOfflineDetection() {
+  const showBanner = (offline) => {
+    const b = document.getElementById('offlineBanner');
+    if (!b) return;
+    b.classList.toggle('hidden', !offline);
+    if (offline) showToast('⚡ Internet connection lost — live sync paused', 'warning');
+    else         showToast('✓ Back online — syncing now', 'success');
+  };
+  window.addEventListener('offline', () => { S.isOnline = false; showBanner(true);  });
+  window.addEventListener('online',  () => { S.isOnline = true;  showBanner(false); });
+  // Show banner immediately if already offline on page load
+  if (!navigator.onLine) showBanner(true);
+}
 
 function resetGBtn() {
   const b = document.getElementById('firebaseGoogleBtn');
@@ -133,7 +153,11 @@ function col(row, ...keys) {
 function parseDetail(r) {
   const regNo = col(r, 'REG .NO.', 'REG. NO.', 'REG.NO.', 'Reg .No.', 'Reg. No.', 'REG NO', 'RegNo');
   if (!regNo || regNo === 'N/A') return null;
-  const arrRaw = col(r, 'ARREARS COUNT (CURRENT)', 'ARREARS COUNT', 'ARREARS');
+  const arrRaw  = col(r, 'ARREARS COUNT (CURRENT)', 'ARREARS COUNT', 'ARREARS');
+  const cgpaRaw = col(r, 'CGPA');
+  // Store null for '-', empty, or unparseable CGPA so UI shows 'N/A' not '0'
+  const cgpaParsed = parseFloat(cgpaRaw);
+  const cgpa = (!cgpaRaw || cgpaRaw === '-' || cgpaRaw === 'N/A' || isNaN(cgpaParsed)) ? null : cgpaParsed;
   return {
     regNo,
     sno: col(r, 'S. No', 'S. NO', 'S.No'),
@@ -142,7 +166,7 @@ function parseDetail(r) {
     role: col(r, 'ROLE', 'Role'),
     mobile: col(r, 'MOBILE NUMBER', 'Mobile Number', 'MOBILE'),
     mail: col(r, 'MAIL ID', 'Mail ID', 'EMAIL', 'Email'),
-    cgpa: parseFloat(col(r, 'CGPA')) || 0,
+    cgpa,  // null means 'N/A', a number means actual CGPA
     arrears: (arrRaw === 'NIL' || arrRaw === 'N/A') ? 0 : parseInt(arrRaw) || 0,
     specialLab: col(r, 'SPECIAL LAB', 'Special Lab'),
     ssg: col(r, 'MEMBER OF SSG', 'Member of SSG', 'SSG'),
@@ -207,7 +231,22 @@ function mergeMembers(details, skills, ps) {
   return details.map(d => ({ ...d, skills: sm[normReg(d.regNo)] || {}, ps: pm[normReg(d.regNo)] || {} }));
 }
 
+// ── Sheet data cache (30 min TTL) ────────────────────────────────
+const CACHE_TTL = 30 * 60 * 1000; // 30 minutes
+let _sheetCache = null; // { data, ts }
+
 async function loadSheetData() {
+  // Return cached data if fresh
+  if (_sheetCache && (Date.now() - _sheetCache.ts) < CACHE_TTL) {
+    const c = _sheetCache.data;
+    S.members         = c.members;
+    S.events          = c.events;
+    S.attendance      = c.attendance;
+    S.filteredMembers = [...c.members];
+    console.log('[NEXUS] Using cached sheet data');
+    return;
+  }
+
   setLoader('FETCHING SHEET DATA…');
   const settled = await Promise.allSettled([
     fetchCSV(GID.details), fetchCSV(GID.skills), fetchCSV(GID.ps), fetchCSV(GID.events), fetchCSV(GID.attendance),
@@ -220,6 +259,10 @@ async function loadSheetData() {
   S.attendance   = ok(settled[4]).map(parseAttend);
   S.members      = mergeMembers(details, skills, ps);
   S.filteredMembers = [...S.members];
+
+  // Store in cache
+  _sheetCache = { ts: Date.now(), data: { members: S.members, events: S.events, attendance: S.attendance } };
+
   console.log(`[NEXUS] Loaded: ${details.length} members, ${S.events.length} events`);
   if (!details.length) showToast('Sheet returned 0 rows — check sharing + GIDs', 'warning');
 }
@@ -239,12 +282,26 @@ async function loginWithEmail(email, displayName, picture) {
   showLoginScreen();
 
   try { await loadSheetData(); }
-  catch (err) { console.error(err); showToast('Could not load sheet. Check public sharing + GIDs.', 'error'); location.reload(); return; }
+  catch (err) {
+    console.error(err);
+    // Fix 4: if offline, try to use cached data instead of reloading
+    if (!navigator.onLine && _sheetCache) {
+      const c = _sheetCache.data;
+      S.members = c.members; S.events = c.events; S.attendance = c.attendance;
+      S.filteredMembers = [...c.members];
+      showToast('Offline — using cached data', 'warning');
+    } else {
+      showToast('Could not load sheet. Check public sharing + GIDs.', 'error');
+      location.reload(); return;
+    }
+  }
 
-  const el    = email.toLowerCase();
+  const el  = email.toLowerCase();
   const match = S.members.find(m => (m.mail || '').toLowerCase() === el);
   const role  = (match?.role || '').toLowerCase().replace(/-/g, ' ');
-  const capByEmail = CAPTAIN_EMAILS.map(e => e.toLowerCase()).includes(el);
+
+  // Fix 5: check both hard-coded fallback AND live Firestore captainEmails
+  const capByEmail = S.captainEmails.map(e => e.toLowerCase()).includes(el);
   const capByRole  = role === 'captain';
   const isCaptain  = capByEmail || capByRole;
 
@@ -264,12 +321,18 @@ async function loginWithEmail(email, displayName, picture) {
   applyModeUI();
   renderUserProfile();
 
-  // Start Firestore listeners — both captain and members subscribe
-  startCaptainListener();
-  startSkillListener();
+  // Start all Firestore listeners
+  startConfigListener();   // Fix 5: captain emails live from Firestore
+  startCaptainListener();  // venue + tasks
+  startSkillListener();    // skill logs
 
   renderAll();
-  showToast(isCaptain ? `Welcome Captain ${S.loggedInUser.name.split(' ')[0]}!` : `Welcome ${S.loggedInUser.name.split(' ')[0]}`, isCaptain ? 'success' : 'info');
+  showToast(
+    isCaptain
+      ? `Welcome Captain ${S.loggedInUser.name.split(' ')[0]}!`
+      : `Welcome ${S.loggedInUser.name.split(' ')[0]}`,
+    isCaptain ? 'success' : 'info'
+  );
   if (!match) showToast('Email not in roster — guest view active', 'warning');
 }
 
@@ -399,9 +462,77 @@ async function saveMySkillLog(entries) {
 function signOut() {
   if (_unsubCaptain) { _unsubCaptain(); _unsubCaptain = null; }
   if (_unsubSkills)  { _unsubSkills();  _unsubSkills  = null; }
+  if (_unsubConfig)  { _unsubConfig();  _unsubConfig  = null; }
   if (typeof window._fbSignOut === 'function') window._fbSignOut().catch(() => {});
   location.reload();
 }
+
+/* ════════════════════════════════════════════════════════════════
+   FIX 5 — CONFIG LISTENER: captain emails stored in Firestore
+   nexus/config  { captainEmails: ['a@b.com', 'c@d.com'] }
+   Firestore rule: same write guard as captainData (isCaptain only)
+════════════════════════════════════════════════════════════════ */
+function startConfigListener() {
+  if (_unsubConfig) { _unsubConfig(); _unsubConfig = null; }
+  if (typeof window._fbListenConfig !== 'function') return;
+
+  _unsubConfig = window._fbListenConfig((cfg) => {
+    // Merge Firestore list with the hard-coded seed so we never lock out
+    const fromFirestore = (cfg.captainEmails || []).map(e => e.toLowerCase());
+    const seed = ['ritviks.it25@bitsathy.ac.in']; // permanent fallback
+    S.captainEmails = [...new Set([...seed, ...fromFirestore])];
+    CAPTAIN_EMAILS  = S.captainEmails; // keep global in sync
+    renderCaptainEmailList();
+  });
+}
+
+function renderCaptainEmailList() {
+  const el = document.getElementById('captainEmailList');
+  if (!el) return;
+  const isCap = S.mode === 'captain';
+  el.innerHTML = S.captainEmails.length
+    ? S.captainEmails.map(email => `
+        <span class="skill-chip skill-primary" style="display:inline-flex;align-items:center;gap:8px;font-size:10px">
+          ${email}
+          ${isCap && email !== S.loggedInUser?.email
+            ? `<button onclick="removeCaptainEmail('${email}')" class="btn-xs" style="padding:1px 6px" title="Remove">✕</button>`
+            : '<span style="font-size:9px;opacity:.5">(you)</span>'}
+        </span>`).join('')
+    : '<span style="color:var(--text-muted);font-family:var(--font-mono);font-size:11px">No captains configured</span>';
+}
+
+async function addCaptainEmail() {
+  if (!requireCaptain('Add captain')) return;
+  const inp = document.getElementById('newCaptainEmail');
+  const email = (inp?.value || '').trim().toLowerCase();
+  if (!email || !email.includes('@')) { showToast('Enter a valid email address', 'warning'); return; }
+  if (S.captainEmails.includes(email)) { showToast('Already a captain', 'warning'); return; }
+
+  const updated = [...S.captainEmails, email];
+  try {
+    await window._fbSaveConfig({ captainEmails: updated });
+    inp.value = '';
+    showToast(`✓ ${email} added as Captain`, 'success');
+  } catch (e) {
+    showToast('Failed to save — check Firestore rules', 'error');
+    console.error('[NEXUS] addCaptainEmail:', e);
+  }
+}
+
+window.removeCaptainEmail = async (email) => {
+  if (!requireCaptain('Remove captain')) return;
+  if (email === S.loggedInUser?.email) { showToast('Cannot remove yourself', 'warning'); return; }
+  if (!confirm(`Remove ${email} from captain list?`)) return;
+
+  const updated = S.captainEmails.filter(e => e !== email);
+  try {
+    await window._fbSaveConfig({ captainEmails: updated });
+    showToast(`${email} removed from captains`, 'success');
+  } catch (e) {
+    showToast('Failed to save — check Firestore rules', 'error');
+    console.error('[NEXUS] removeCaptainEmail:', e);
+  }
+};
 
 /* ════════════════════════════════════════════════════════════════
    MODE UI
@@ -494,24 +625,53 @@ function wireListeners() {
     const t = document.querySelector('.google-btn-text');
     b.disabled = true; if (s) s.classList.remove('hidden'); if (t) t.style.visibility = 'hidden';
     if (typeof window._firebaseGoogleSignIn === 'function') window._firebaseGoogleSignIn();
-    else setTimeout(() => { if (typeof window._firebaseGoogleSignIn === 'function') window._firebaseGoogleSignIn(); else { resetGBtn(); showLoginError('Firebase not ready — refresh the page'); } }, 1500);
+    else setTimeout(() => {
+      if (typeof window._firebaseGoogleSignIn === 'function') window._firebaseGoogleSignIn();
+      else { resetGBtn(); showLoginError('Firebase not ready — refresh the page'); }
+    }, 1500);
   });
 
-  document.getElementById('loginRetry').addEventListener('click', () => document.getElementById('loginError').classList.add('hidden'));
-  document.getElementById('hamburger').addEventListener('click', () => document.getElementById('sidebar').classList.toggle('open'));
+  document.getElementById('loginRetry').addEventListener('click', () =>
+    document.getElementById('loginError').classList.add('hidden'));
+
+  // Hamburger — Fix 3: use touchstart for iOS Safari responsiveness
+  const hamburger = document.getElementById('hamburger');
+  const sidebar   = document.getElementById('sidebar');
+  hamburger.addEventListener('click', () => sidebar.classList.toggle('open'));
+  // Fix 3: close sidebar on outside tap — works on iOS because the overlay div is clickable
   document.addEventListener('click', e => {
-    const sb = document.getElementById('sidebar'), hb = document.getElementById('hamburger');
-    if (sb.classList.contains('open') && !sb.contains(e.target) && !hb.contains(e.target)) sb.classList.remove('open');
+    if (sidebar.classList.contains('open') && !sidebar.contains(e.target) && !hamburger.contains(e.target))
+      sidebar.classList.remove('open');
   });
+  // Fix 3: iOS Safari needs cursor:pointer on the body for click delegation to fire
+  document.body.style.cursor = 'auto'; // forces iOS to register tap events on non-interactive elements
 
   document.querySelectorAll('.nav-item').forEach(item => item.addEventListener('click', e => {
     e.preventDefault();
     const sec = item.dataset.section;
-    if ((sec === 'captain' || sec === 'attendance') && S.mode !== 'captain') { showToast('Captain access required', 'error'); return; }
-    navigateTo(sec); document.getElementById('sidebar').classList.remove('open');
+    if ((sec === 'captain' || sec === 'attendance') && S.mode !== 'captain') {
+      showToast('Captain access required', 'error'); return;
+    }
+    navigateTo(sec); sidebar.classList.remove('open');
   }));
 
   document.getElementById('signOutBtn').addEventListener('click', signOut);
+
+  // Fix 2: Refresh Data button — clears cache and re-fetches sheet
+  document.getElementById('refreshDataBtn').addEventListener('click', async () => {
+    const btn = document.getElementById('refreshDataBtn');
+    btn.textContent = '↺ REFRESHING…'; btn.disabled = true;
+    _sheetCache = null; // bust cache
+    try {
+      await loadSheetData();
+      renderAll();
+      showToast('✓ Data refreshed from Google Sheets', 'success');
+    } catch (e) {
+      showToast('Refresh failed — check internet connection', 'error');
+    }
+    btn.textContent = '↺ REFRESH DATA'; btn.disabled = false;
+  });
+
   document.getElementById('searchInput')  .addEventListener('input',  applyFilters);
   document.getElementById('filterDept')   .addEventListener('change', applyFilters);
   document.getElementById('filterRole')   .addEventListener('change', applyFilters);
@@ -521,12 +681,19 @@ function wireListeners() {
   document.getElementById('viewTable')    .addEventListener('click',  () => setView('table'));
 
   // Captain panel
-  document.getElementById('saveVenueBtn') .addEventListener('click', saveVenue);
-  document.getElementById('assignBulkBtn').addEventListener('click', assignBulkTask);
-  document.getElementById('exportTasksBtn').addEventListener('click', exportTasks);
-  document.getElementById('resetTasksBtn') .addEventListener('click', resetAllTasks);
-  document.getElementById('taskSearch')       .addEventListener('input',  renderTaskTable);
-  document.getElementById('taskStatusFilter') .addEventListener('change', renderTaskTable);
+  document.getElementById('saveVenueBtn')    .addEventListener('click', saveVenue);
+  document.getElementById('assignBulkBtn')   .addEventListener('click', assignBulkTask);
+  document.getElementById('exportTasksBtn')  .addEventListener('click', exportTasks);
+  document.getElementById('resetTasksBtn')   .addEventListener('click', resetAllTasks);
+  document.getElementById('taskSearch')      .addEventListener('input',  renderTaskTable);
+  document.getElementById('taskStatusFilter').addEventListener('change', renderTaskTable);
+
+  // Fix 5: Captain email management buttons
+  document.getElementById('addCaptainEmailBtn').addEventListener('click', addCaptainEmail);
+  document.getElementById('newCaptainEmail').addEventListener('keydown', e => {
+    if (e.key === 'Enter') { e.preventDefault(); addCaptainEmail(); }
+  });
+
   document.querySelectorAll('.tob-item').forEach(item => item.addEventListener('click', () => {
     S.taskFilter = item.dataset.filter;
     document.querySelectorAll('.tob-item').forEach(i => i.classList.remove('active'));
@@ -534,16 +701,20 @@ function wireListeners() {
   }));
 
   // Skill progress
-  document.getElementById('addSlotBtn')  .addEventListener('click', addSlot);
-  document.getElementById('saveSkillBtn').addEventListener('click', saveWeekEntry);
+  document.getElementById('addSlotBtn')   .addEventListener('click', addSlot);
+  document.getElementById('saveSkillBtn') .addEventListener('click', saveWeekEntry);
   document.getElementById('skillSlotName').addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); addSlot(); } });
-  document.getElementById('skillWeek').addEventListener('change', loadWeekDraft);
+  document.getElementById('skillWeek')    .addEventListener('change', loadWeekDraft);
 
   // Modal
   document.getElementById('closeModal').addEventListener('click', closeModal);
-  document.getElementById('memberModal').addEventListener('click', e => { if (e.target === document.getElementById('memberModal')) closeModal(); });
+  document.getElementById('memberModal').addEventListener('click', e => {
+    if (e.target === document.getElementById('memberModal')) closeModal();
+  });
   document.querySelectorAll('.mm-tab').forEach(tab => tab.addEventListener('click', () => {
-    if (tab.dataset.tab === 'task' && S.mode !== 'captain') { showToast('Task editing is Captain-only', 'error'); return; }
+    if (tab.dataset.tab === 'task' && S.mode !== 'captain') {
+      showToast('Task editing is Captain-only', 'error'); return;
+    }
     switchModalTab(tab.dataset.tab);
   }));
   document.getElementById('saveTaskBtn').addEventListener('click', saveModalTask);
@@ -572,28 +743,39 @@ async function saveVenue() {
   if (!requireCaptain('Venue update')) return;
   const v = (document.getElementById('venueInput').value || '').trim();
   if (!v) { showToast('Enter a venue first', 'warning'); return; }
-  S.captainData.venue = v;
-  updateVenueEverywhere(); // immediate local update
-  const ok = await saveCaptainData(); // push to Firestore → all members get it via onSnapshot
-  if (ok) showToast('✓ Venue saved — syncing to all members now', 'success');
-}
 
-/* ════════════════════════════════════════════════════════════════
-   CAPTAIN — TASKS
-════════════════════════════════════════════════════════════════ */
-function getTask(regNo) {
-  return S.captainData.tasks[regNo] || { title: '', priority: 'medium', dueDate: '', status: 'pending', remarks: '' };
+  const btn = document.getElementById('saveVenueBtn');
+  const orig = btn.textContent;
+  btn.textContent = 'SAVING…'; btn.disabled = true;
+
+  S.captainData.venue = v;
+  updateVenueEverywhere();
+  const ok = await saveCaptainData();
+
+  btn.textContent = orig; btn.disabled = false;
+  if (ok) showToast('✓ Venue saved — syncing to all members now', 'success');
 }
 
 async function assignBulkTask() {
   if (!requireCaptain('Bulk assign')) return;
   const title = (document.getElementById('bulkTaskTitle').value || '').trim();
   if (!title) { showToast('Enter a task title', 'warning'); return; }
+
+  const btn = document.getElementById('assignBulkBtn');
+  const orig = btn.textContent;
+  btn.textContent = 'SAVING…'; btn.disabled = true;
+
   const priority = document.getElementById('bulkPriority').value;
   const dueDate  = document.getElementById('bulkDueDate').value;
   S.members.forEach(m => { S.captainData.tasks[m.regNo] = { title, priority, dueDate, status: 'pending', remarks: '' }; });
   const ok = await saveCaptainData();
+
+  btn.textContent = orig; btn.disabled = false;
   if (ok) showToast(`Task assigned to all ${S.members.length} members`, 'success');
+}
+
+function getTask(regNo) {
+  return S.captainData.tasks[regNo] || { title: '', priority: 'medium', dueDate: '', status: 'pending', remarks: '' };
 }
 
 function exportTasks() {
@@ -687,13 +869,17 @@ function initSkillWeek() {
 }
 
 function loadWeekDraft() {
-  const u     = S.loggedInUser;
-  const week  = document.getElementById('skillWeek')?.value;
+  const u    = S.loggedInUser;
+  const week = document.getElementById('skillWeek')?.value;
   if (!u || !week) return;
 
-  // Look up by email first (primary key per rules), then regNo as fallback
-  const log      = S.skillLogs[u.email] || S.skillLogs[u.regNo]
-                || S.skillLogs[(u.regNo || '').replace(/\s+/g,'').toUpperCase()];
+  // Match by email (Firestore primary key) → regNo fallbacks for legacy data
+  const normReg = (u.regNo || '').replace(/\s+/g, '').toUpperCase();
+  const log     = S.skillLogs[u.email]
+               || S.skillLogs[(u.email || '').toLowerCase()]
+               || S.skillLogs[u.regNo]
+               || S.skillLogs[normReg];
+
   const existing = (log?.entries || []).find(e => e.week === week);
   S.slotDraft    = existing ? [...(existing.slots || [])] : [];
   const notes    = document.getElementById('skillNotes');
@@ -751,16 +937,19 @@ async function saveWeekEntry() {
 }
 
 // ── Team table — ALL members' entries, visible to everyone ─────────
-// Called by onSnapshot every time ANY member saves — real-time for all
 function renderSkillTeamTable() {
   const body = document.getElementById('skillTeamBody');
   if (!body) return;
 
   const rows = [];
   S.members.forEach(m => {
-    // Try both raw regNo and normalised (spaces stripped) to find the log
-    const normKey = (m.regNo || '').replace(/\s+/g, '').toUpperCase();
-    const log = S.skillLogs[m.regNo] || S.skillLogs[normKey];
+    // Primary key = email (Firestore doc ID per rules).
+    // Fallback to regNo variants for any data saved before the email-key fix.
+    const normReg = (m.regNo || '').replace(/\s+/g, '').toUpperCase();
+    const log = S.skillLogs[m.mail]      // email from sheet (matches Firestore doc ID)
+             || S.skillLogs[(m.mail||'').toLowerCase()]
+             || S.skillLogs[m.regNo]     // legacy fallback
+             || S.skillLogs[normReg];    // normalised regNo fallback
 
     if (!log?.entries?.length) {
       rows.push({ member: m, week: '—', slots: [], notes: '—' });
@@ -817,7 +1006,10 @@ function renderSummaryCards() {
   document.getElementById('sc-events') .textContent = m.reduce((a, x) => a + (x.eventsAttended || 0), 0);
   document.getElementById('sc-won')    .textContent = m.reduce((a, x) => a + (x.eventsWon || 0), 0);
   document.getElementById('sc-arrears').textContent = m.filter(x => (x.arrears || 0) > 0).length;
-  document.getElementById('sc-cgpa')   .textContent = m.length ? (m.reduce((a, x) => a + (x.cgpa || 0), 0) / m.length).toFixed(2) : '--';
+  // Only average members who have a real CGPA (exclude null)
+  const withCgpa = m.filter(x => x.cgpa !== null && x.cgpa !== undefined);
+  document.getElementById('sc-cgpa').textContent = withCgpa.length
+    ? (withCgpa.reduce((a, x) => a + x.cgpa, 0) / withCgpa.length).toFixed(2) : '--';
 }
 
 function populateFilters() {
@@ -838,7 +1030,12 @@ function applyFilters() {
   });
   if (sort) res.sort((a, b) => {
     if (sort === 'name') return (a.name || '').localeCompare(b.name || '');
-    const map = { cgpa: [b.cgpa, a.cgpa], rewardPts: [b.ps?.rewardPts || 0, a.ps?.rewardPts || 0], activityPts: [b.ps?.activityPts || 0, a.ps?.activityPts || 0], eventsAttended: [b.eventsAttended || 0, a.eventsAttended || 0] };
+    // For CGPA sort: null (N/A) always goes last
+    if (sort === 'cgpa') {
+      const ac = a.cgpa ?? -1, bc = b.cgpa ?? -1;
+      return bc - ac;
+    }
+    const map = { rewardPts: [b.ps?.rewardPts || 0, a.ps?.rewardPts || 0], activityPts: [b.ps?.activityPts || 0, a.ps?.activityPts || 0], eventsAttended: [b.eventsAttended || 0, a.eventsAttended || 0] };
     return (map[sort] || [0, 0])[0] - (map[sort] || [0, 0])[1];
   });
   S.filteredMembers = res;
@@ -870,11 +1067,12 @@ function renderMemberCards(members) {
     const tags = [sk.primary1, sk.primary2].filter(s => s && s !== 'N/A').map(s => `<span class="skill-tag">${s}</span>`).join('');
     const task = getTask(m.regNo);
     const tb   = S.mode === 'captain' && task.title ? `<span class="skill-tag" style="color:var(--gold);border-color:rgba(255,215,0,.3)">${task.status.toUpperCase()}</span>` : '';
+    const cgpaDisplay = m.cgpa !== null && m.cgpa !== undefined ? m.cgpa : 'N/A';
     return `<div class="member-card" onclick="openMemberModal('${m.regNo}')">
       <div class="mc-top"><div class="mc-avatar">${ini}</div><div><div class="mc-name">${m.name || 'Unknown'}</div><div class="mc-reg">${m.regNo}</div></div></div>
       <div class="mc-details">
         <div class="mc-detail"><span class="mc-detail-label">DEPT</span><span class="mc-detail-val">${m.dept || 'N/A'}</span></div>
-        <div class="mc-detail"><span class="mc-detail-label">CGPA</span><span class="mc-detail-val">${m.cgpa || 'N/A'}</span></div>
+        <div class="mc-detail"><span class="mc-detail-label">CGPA</span><span class="mc-detail-val">${cgpaDisplay}</span></div>
         <div class="mc-detail"><span class="mc-detail-label">REWARD PTS</span><span class="mc-detail-val">${m.ps?.rewardPts || 0}</span></div>
         <div class="mc-detail"><span class="mc-detail-label">EVENTS WON</span><span class="mc-detail-val">${m.eventsWon || 0}</span></div>
       </div>
@@ -886,15 +1084,18 @@ function renderMemberCards(members) {
 function renderMemberTable(members) {
   document.getElementById('tableHead').innerHTML = '<tr><th>#</th><th>NAME</th><th>REG NO</th><th>DEPT</th><th>ROLE</th><th>CGPA</th><th>ARREARS</th><th>REWARD PTS</th></tr>';
   document.getElementById('tableBody').innerHTML = members.length
-    ? members.map((m, i) => `<tr onclick="openMemberModal('${m.regNo}')">
-        <td>${i + 1}</td><td><strong>${m.name || 'N/A'}</strong></td>
-        <td style="font-family:var(--font-mono);font-size:11px;color:var(--cyan)">${m.regNo}</td>
-        <td>${m.dept || 'N/A'}</td>
-        <td><span class="role-badge ${badgeClass(m.role)}" style="font-size:9px">${m.role || 'Member'}</span></td>
-        <td style="color:var(--green)">${m.cgpa || 'N/A'}</td>
-        <td style="color:${(m.arrears || 0) > 0 ? 'var(--red)' : 'var(--text-secondary)'}">${m.arrears || 0}</td>
-        <td style="color:var(--gold)">${m.ps?.rewardPts || 0}</td>
-      </tr>`).join('')
+    ? members.map((m, i) => {
+        const cgpa = m.cgpa !== null && m.cgpa !== undefined ? m.cgpa : 'N/A';
+        return `<tr onclick="openMemberModal('${m.regNo}')">
+          <td>${i + 1}</td><td><strong>${m.name || 'N/A'}</strong></td>
+          <td style="font-family:var(--font-mono);font-size:11px;color:var(--cyan)">${m.regNo}</td>
+          <td>${m.dept || 'N/A'}</td>
+          <td><span class="role-badge ${badgeClass(m.role)}" style="font-size:9px">${m.role || 'Member'}</span></td>
+          <td style="color:${cgpa !== 'N/A' ? 'var(--green)' : 'var(--text-muted)'}">${cgpa}</td>
+          <td style="color:${(m.arrears || 0) > 0 ? 'var(--red)' : 'var(--text-secondary)'}">${m.arrears || 0}</td>
+          <td style="color:var(--gold)">${m.ps?.rewardPts || 0}</td>
+        </tr>`;
+      }).join('')
     : '<tr><td colspan="8" class="empty-td">No members found.</td></tr>';
 }
 
@@ -921,12 +1122,20 @@ function renderAttendanceTable() {
 
 function renderRecentActivity() {
   const m = S.members;
+  const withCgpa = m.filter(x => x.cgpa !== null && x.cgpa !== undefined);
+  const avgCgpa  = withCgpa.length
+    ? (withCgpa.reduce((a, x) => a + x.cgpa, 0) / withCgpa.length).toFixed(2)
+    : 'N/A';
+  const skillCount = new Set(
+    Object.values(S.skillLogs).map(l => l.regNo).filter(Boolean)
+  ).size;
   document.getElementById('recentList').innerHTML = [
     `${m.length} members loaded from Google Sheets`,
     `${S.events.length} events in the log`,
     `${m.filter(x => (x.ps?.mandatoryCompletion || '') === 'Yes').length} members completed Mandatory PS`,
-    `Average CGPA: ${m.length ? (m.reduce((a, x) => a + (x.cgpa || 0), 0) / m.length).toFixed(2) : 'N/A'}`,
-    `${Object.keys(S.skillLogs).length} members have submitted skill progress`,
+    `Average CGPA: ${avgCgpa} (${withCgpa.length} of ${m.length} members have CGPA data)`,
+    `${skillCount} members have submitted skill progress this term`,
+    `${Object.keys(S.captainData.tasks).length} tasks assigned · ${Object.values(S.captainData.tasks).filter(t => t.status === 'completed').length} completed`,
   ].map(it => `<div class="recent-item"><div class="recent-dot"></div>${it}</div>`).join('');
 }
 
@@ -1042,15 +1251,31 @@ const CD = { plugins:{legend:{labels:{color:'#8aa8cc',font:{family:'Share Tech M
 
 function renderDashboardCharts() {
   const m = S.members;
-  const dc={};m.forEach(x=>{dc[x.dept||'N/A']=(dc[x.dept||'N/A']||0)+1;});
-  dChart('dept'); const dC=document.getElementById('deptChart');
-  if(dC)S.charts.dept=new Chart(dC,{type:'doughnut',data:{labels:Object.keys(dc),datasets:[{data:Object.values(dc),backgroundColor:NC.map(c=>c+'99'),borderColor:NC,borderWidth:1}]},options:{plugins:{legend:{labels:{color:'#8aa8cc',font:{family:'Share Tech Mono',size:10}}}},cutout:'60%'}});
-  const rc={};m.forEach(x=>{rc[x.role||'Member']=(rc[x.role||'Member']||0)+1;});
-  dChart('role'); const rC=document.getElementById('roleChart');
-  if(rC)S.charts.role=new Chart(rC,{type:'pie',data:{labels:Object.keys(rc),datasets:[{data:Object.values(rc),backgroundColor:NC.map(c=>c+'88'),borderColor:NC,borderWidth:1}]},options:{plugins:{legend:{labels:{color:'#8aa8cc',font:{family:'Share Tech Mono',size:10}}}}}});
-  const top=[...m].sort((a,b)=>(b.cgpa||0)-(a.cgpa||0)).slice(0,8);
-  dChart('cgpa'); const cC=document.getElementById('cgpaChart');
-  if(cC)S.charts.cgpa=new Chart(cC,{type:'bar',data:{labels:top.map(x=>x.name.split(' ')[0]),datasets:[{label:'CGPA',data:top.map(x=>x.cgpa),backgroundColor:NC[0]+'66',borderColor:NC[0],borderWidth:1}]},options:{...CD,plugins:{legend:{display:false}},scales:{...CD.scales,y:{...CD.scales.y,min:0,max:10}}}});
+
+  // Dept doughnut
+  const dc = {}; m.forEach(x => { dc[x.dept||'N/A'] = (dc[x.dept||'N/A']||0)+1; });
+  dChart('dept'); const dC = document.getElementById('deptChart');
+  if (dC) S.charts.dept = new Chart(dC, {type:'doughnut',data:{labels:Object.keys(dc),datasets:[{data:Object.values(dc),backgroundColor:NC.map(c=>c+'99'),borderColor:NC,borderWidth:1}]},options:{plugins:{legend:{labels:{color:'#8aa8cc',font:{family:'Share Tech Mono',size:10}}}},cutout:'60%'}});
+
+  // Role pie
+  const rc = {}; m.forEach(x => { rc[x.role||'Member'] = (rc[x.role||'Member']||0)+1; });
+  dChart('role'); const rC = document.getElementById('roleChart');
+  if (rC) S.charts.role = new Chart(rC, {type:'pie',data:{labels:Object.keys(rc),datasets:[{data:Object.values(rc),backgroundColor:NC.map(c=>c+'88'),borderColor:NC,borderWidth:1}]},options:{plugins:{legend:{labels:{color:'#8aa8cc',font:{family:'Share Tech Mono',size:10}}}}}});
+
+  // Fix 1: Top CGPA bar — only include members WITH a real CGPA (not null)
+  const top = [...m]
+    .filter(x => x.cgpa !== null && x.cgpa !== undefined)
+    .sort((a, b) => b.cgpa - a.cgpa)
+    .slice(0, 8);
+  dChart('cgpa'); const cC = document.getElementById('cgpaChart');
+  if (cC) S.charts.cgpa = new Chart(cC, {
+    type: 'bar',
+    data: {
+      labels  : top.map(x => x.name.split(' ')[0]),
+      datasets: [{ label:'CGPA', data:top.map(x=>x.cgpa), backgroundColor:NC[0]+'66', borderColor:NC[0], borderWidth:1 }],
+    },
+    options: { ...CD, plugins:{legend:{display:false}}, scales:{...CD.scales,y:{...CD.scales.y,min:0,max:10}} },
+  });
 }
 
 function renderAnalyticsCharts() {
